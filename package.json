@@ -1,0 +1,20 @@
+{
+  "name": "openmtm2-server",
+  "version": "0.1.0",
+  "description": "Network services for OpenMTM2: the classic DirectPlay helper and the online room server.",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22.18" },
+  "bin": {
+    "openmtm2-bridge": "bin/openmtm2-bridge.mjs",
+    "openmtm2d": "bin/openmtm2d.mjs"
+  },
+  "scripts": {
+    "test": "node --test tests/",
+    "vendor": "node tools/vendor.mjs",
+    "worker:dev": "npx wrangler dev --config cloudflare/wrangler.toml",
+    "worker:deploy": "npx wrangler deploy --config cloudflare/wrangler.toml",
+    "worker:tail": "npx wrangler tail --config cloudflare/wrangler.toml"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$comment": "OpenMTM2 room server settings (docs/DAEMON.md). Behind a TLS proxy on the same machine: host 127.0.0.1 and trustProxy true.",
+  "host": "127.0.0.1",
+  "port": 47660,
+  "name": "My OpenMTM2 server",
+  "motd": "Be nice. Races start when everyone is Ready.",
+  "origins": ["https://juanputrerasm.github.io"],
+  "allowLocalOrigins": true,
+  "allowNoOrigin": true,
+  "maxRooms": 50,
+  "maxPlayers": 8,
+  "maxMembers": 200,
+  "maxConnectionsPerIp": 8,
+  "connectionsPerMinutePerIp": 30,
+  "drainS": 60,
+  "logLevel": "info",
+  "logFormat": "json",
+  "adminToken": "",
+  "trustProxy": true,
+  "gateway": false
+}

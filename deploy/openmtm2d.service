@@ -1,0 +1,48 @@
+# systemd unit for the OpenMTM2 room server (docs/DAEMON.md).
+#   sudo cp -r . /opt/openmtm2-server        (the project, without tests)
+#   sudo mkdir -p /etc/openmtm2 && sudo cp deploy/server.example.json /etc/openmtm2/server.json
+#   sudo cp deploy/openmtm2d.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now openmtm2d
+#   journalctl -u openmtm2d -f              (the log)   systemctl reload openmtm2d   (new settings)
+[Unit]
+Description=OpenMTM2 room server
+Documentation=https://github.com/juanputrerasm/OpenMTM2-Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /opt/openmtm2-server/bin/openmtm2d.mjs --config /etc/openmtm2/server.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+# Races get up to drainS (60 s by default) to finish on stop.
+TimeoutStopSec=90
+
+# A throwaway user, and a state folder it owns (/var/lib/openmtm2, given as STATE_DIRECTORY).
+DynamicUser=yes
+StateDirectory=openmtm2
+ConfigurationDirectory=openmtm2
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

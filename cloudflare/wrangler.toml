@@ -1,0 +1,34 @@
+# OpenMTM2's room server on Cloudflare (docs/CLOUDFLARE.md).
+#   npx wrangler deploy --config cloudflare/wrangler.toml
+# The address is then https://<name>.<your account>.workers.dev; players type it without https://.
+
+name = "openmtm2-rooms"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomsObject"
+
+# The free plan needs SQLite-backed Durable Objects.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomsObject"]
+
+[observability]
+enabled = true
+
+[vars]
+OPENMTM2_NAME = "OpenMTM2 server"
+OPENMTM2_MOTD = ""
+# Pages allowed to connect, comma separated ("*" for any).
+OPENMTM2_ORIGINS = "https://juanputrerasm.github.io"
+OPENMTM2_LOG_LEVEL = "info"
+# Where the rooms live: wnam (western North America), enam (eastern North America), weur, eeur, apac, oc, afr, me.
+# Empty: near the first player who connects.
+OPENMTM2_LOCATION = "enam"
+
+# Any other setting of docs/DAEMON.md, as in server.json.
+[vars.OPENMTM2_SETTINGS]
+maxRooms = 20
+maxPlayers = 8

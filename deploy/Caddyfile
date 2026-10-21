@@ -1,0 +1,5 @@
+# Caddy in front of openmtm2d: TLS certificates are automatic, WebSockets pass through.
+# In server.json: "host": "127.0.0.1", "trustProxy": true. The page then uses wss://rooms.example.org/play
+rooms.example.org {
+	reverse_proxy 127.0.0.1:47660
+}
