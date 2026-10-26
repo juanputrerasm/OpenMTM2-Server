@@ -2,7 +2,7 @@
 #   npx wrangler deploy --config cloudflare/wrangler.toml
 # The address is then https://<name>.<your account>.workers.dev; players type it without https://.
 
-name = "openmtm2-rooms"
+name = "multiplayer"
 main = "worker.js"
 compatibility_date = "2026-10-01"
 
@@ -20,9 +20,9 @@ enabled = true
 
 [vars]
 OPENMTM2_NAME = "OpenMTM2 server"
-OPENMTM2_MOTD = ""
+OPENMTM2_MOTD = "Welcome to the OpenMTM2 multiplayer test server"
 # Pages allowed to connect, comma separated ("*" for any).
-OPENMTM2_ORIGINS = "https://juanputrerasm.github.io"
+OPENMTM2_ORIGINS = "*"
 OPENMTM2_LOG_LEVEL = "info"
 # Where the rooms live: wnam (western North America), enam (eastern North America), weur, eeur, apac, oc, afr, me.
 # Empty: near the first player who connects.

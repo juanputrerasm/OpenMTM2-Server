@@ -41,6 +41,7 @@ export function createBucket(perSecond, burst, now) {
 export const ROOM_DEFAULTS = Object.freeze({
   name: "OpenMTM2 server", motd: "", maxRooms: 50, maxPlayers: 8, maxMembers: 200,
   maxGatewayRooms: 1, loadTimeoutS: 120, resultsTimeoutS: 30, startDelayMs: 1500, messagesPerSecond: 20, chatPerSecond: 2,
+  idleTimeoutS: 120,
 });
 
 export function createRoomServer({ config = {}, now = Date.now, random = Math.random, log = () => {}, version = "0", hooks = {} } = {}) {
@@ -51,7 +52,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
   let draining = null;
   let gatewayRooms = 0;
   const started = now();
-  const counters = { connections: 0, races: 0, framesRelayed: 0 };
+  const counters = { connections: 0, races: 0, framesRelayed: 0, timedOut: 0 };
+  let sweeper = null;
 
   // ---- Snapshots ----
 
@@ -410,14 +412,16 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
       bucket: createBucket(cfg.messagesPerSecond, cfg.messagesPerSecond * 2, now),
       chatBucket: createBucket(cfg.chatPerSecond, cfg.chatPerSecond * 3, now),
       stateBucket: createBucket(STATE_MAX_HZ, STATE_MAX_HZ, now),
-      strikes: 0, classic,
+      strikes: 0, classic, seen: now(),
     };
     members.set(m.id, m);
+    watchIdle();
     if (draining) send(m, { type: "shutdown", text: draining.text, inMs: Math.max(0, draining.at - now()) });
     return {
       id: m.id,
       text(data) {
         if (m.gone) return;
+        m.seen = now();
         if (!m.bucket.take()) {
           // A client that keeps flooding is dropped.
           if (++m.strikes > cfg.messagesPerSecond * 4) { client.close(CLOSE.RATE, "Too many messages"); return; }
@@ -434,14 +438,42 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
           error(m, checked.message.id, ERROR.BAD_REQUEST, "The server could not do that.");
         });
       },
-      binary(bytes) { if (!m.gone && m.hello) binary(m, bytes); },
-      closed() {
+      binary(bytes) {
         if (m.gone) return;
-        exit(m, "disconnected");
-        m.gone = true;
-        members.delete(m.id);
+        m.seen = now();
+        if (m.hello) binary(m, bytes);
       },
+      closed: () => drop(m),
     };
+  }
+
+  /** A member whose connection has ended: out of their room, and forgotten. */
+  function drop(m, reason = "disconnected") {
+    if (m.gone) return;
+    exit(m, reason);
+    m.gone = true;
+    members.delete(m.id);
+    if (!members.size) { clearInterval(sweeper); sweeper = null; }
+  }
+
+  /**
+   * Members silent for `idleTimeoutS` are dropped: their connection died without a close (a lost Wi-Fi, a laptop put to
+   * sleep), which a Cloudflare Worker never hears of, since it cannot ping. Clients send a ping every 15 s, and in a room
+   * every 5 s; a background tab's timers may run once a minute, hence the margin. 0 turns it off.
+   */
+  function watchIdle() {
+    if (sweeper || !(cfg.idleTimeoutS > 0)) return;
+    sweeper = setInterval(() => {
+      const limit = cfg.idleTimeoutS * 1000;
+      for (const m of [...members.values()]) {
+        if (m.classic || now() - m.seen <= limit) continue;
+        log("info", "timed out", { member: m.id, room: m.room?.code, silentS: Math.round((now() - m.seen) / 1000) });
+        counters.timedOut++;
+        drop(m, "timed out");
+        try { m.client.close(CLOSE.IDLE, "Timed out"); } catch { /* already closed */ }
+      }
+    }, Math.min(15000, Math.max(1000, cfg.idleTimeoutS * 250)));
+    sweeper.unref?.();
   }
 
   // ---- The daemon's side ----
@@ -494,6 +526,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     closeAll(code = 1001, reason = "Server shutting down") {
       for (const m of [...members.values()]) m.client.close(code, reason);
       for (const r of rooms.values()) clearRace(r);
+      clearInterval(sweeper);
+      sweeper = null;
     },
     get members() { return members.size; },
   };

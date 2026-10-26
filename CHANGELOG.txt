@@ -1,0 +1,42 @@
+OpenMTM2 Server changelog
+=========================
+
+0.1.1 (2026-10-26)
+------------------
+
+Fixes
+- Cloudflare Worker: truck state now reaches the other players. With recent
+  compatibility dates, Workers deliver binary WebSocket messages as Blobs, which
+  the server read as empty and dropped, so no player saw the others move. The
+  server now asks for ArrayBuffers (binaryType) and still reads a Blob if one
+  arrives.
+- Rooms no longer outlive a lost connection. A Worker cannot send WebSocket
+  pings, so a player whose connection died without a close stayed in their room
+  for good, still owning it. The room server now drops any client it has heard
+  nothing from for idleTimeoutS (default 120 s; 0 turns it off): the player
+  leaves the room, which closes or passes to the next player.
+
+Protocol
+- New close code 4010: nothing heard from the client for idleTimeoutS.
+  Clients should send "ping" every 15 s (OpenMTM2 0.6.2 does).
+
+Settings
+- idleTimeoutS (default 120).
+
+Cloudflare
+- wrangler.toml: Worker named "multiplayer", a welcome message, any page
+  allowed to connect.
+- docs/CLOUDFLARE-DEPLOY.md: a step-by-step deploy guide from a new account.
+
+Tests
+- A Blob frame test for the Worker and idle timeout tests for the room server.
+
+0.1.0 (2026-10-21)
+------------------
+
+- First release: openmtm2d, the room server for OpenMTM2's online rooms
+  (room protocol 1), with its DirectPlay gateway for classic rooms that
+  Monster Truck Madness 2 itself joins.
+- openmtm2-bridge, the desktop helper for classic DirectPlay and Community
+  Patch 3 direct connect games.
+- The room server as a Cloudflare Worker on the free plan.

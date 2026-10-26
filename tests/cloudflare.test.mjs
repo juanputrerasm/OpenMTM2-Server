@@ -14,7 +14,8 @@ import { encodeState, decodeState, ROOM_PROTOCOL } from "../protocol/room-messag
 class FakePair {
   constructor() {
     const end = () => ({
-      listeners: {}, received: [], closed: null, accepted: false,
+      // As Workers with a recent compatibility date: binary frames arrive as Blobs unless binaryType says otherwise.
+      listeners: {}, received: [], closed: null, accepted: false, binaryType: "blob",
       addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); },
       emit(type, event) { for (const fn of this.listeners[type] ?? []) fn(event); },
       accept() { this.accepted = true; },
@@ -46,7 +47,10 @@ async function player(e, name, { ip = "203.0.113.1", origin = "https://juanputre
   const p = {
     status: 101, ws,
     send: (obj) => ws.peer.emit("message", { data: JSON.stringify(obj) }),
-    sendBinary: (bytes) => ws.peer.emit("message", { data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }),
+    sendBinary: (bytes) => {
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      ws.peer.emit("message", { data: ws.peer.binaryType === "arraybuffer" ? buffer : new Blob([buffer]) });
+    },
     req(type, fields = {}) {
       const rid = id++;
       p.send({ type, id: rid, ...fields });
@@ -73,6 +77,26 @@ test("worker: the endpoints answer as openmtm2d's do", async () => {
   assert.equal((await e.fetch(request("/admin/rooms"))).status, 401);
   assert.equal((await e.fetch(request("/admin/rooms", { headers: { authorization: "Bearer tok" } }))).status, 200);
   assert.equal((await edge().fetch(request("/admin/rooms"))).status, 404, "admin is off without a token");
+});
+
+test("worker: binary frames are asked for as ArrayBuffers, and a Blob frame still gets through", async () => {
+  const e = edge();
+  const ann = await player(e, "Ann");
+  assert.equal(ann.ws.peer.binaryType, "arraybuffer", "set before accept, or every state frame reads as empty");
+  const { room } = ann.req("create", { name: "Blobs" });
+  const ben = await player(e, "Ben", { ip: "203.0.113.2" });
+  ben.req("join", { room: room.code });
+  ann.req("settings", { track: { sit: "TPARK.SIT", name: "Farm Road 29", crc: 99 } });
+  ben.req("profile", { ready: true });
+  ann.req("start", { weather: 0 });
+  const annV = ann.seen("starting")[0].race.entrants.find((x) => x.member === ann.hello.you.id).vehicle;
+  ann.req("loaded");
+  ben.req("loaded");
+  // A runtime that ignores binaryType: the frame comes as a Blob and is read before it is relayed.
+  ann.ws.peer.binaryType = "blob";
+  ann.sendBinary(encodeState({ vehicle: annV, seq: 1, pos: [4, 5, 6] }));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(ben.binary().map((s) => s.pos), [[4, 5, 6]]);
 });
 
 test("worker: a room and a race over its sockets", async () => {

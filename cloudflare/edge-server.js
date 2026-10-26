@@ -92,6 +92,9 @@ export function createEdgeServer({
     if (s.open >= cfg.maxConnectionsPerIp || !s.bucket.take()) return text(429, "Too Many Requests");
 
     const [client, server] = Object.values(new WebSocketPair());
+    // Binary frames as ArrayBuffers. With recent compatibility dates, Workers hand them over as Blobs by default
+    // (the web standard), and a Blob read as bytes is empty: every truck state frame would be dropped.
+    try { server.binaryType = "arraybuffer"; } catch { /* an older runtime: ArrayBuffers already */ }
     server.accept();
     s.open++;
     let conn = null, done = false;
@@ -120,9 +123,17 @@ export function createEdgeServer({
     server.addEventListener("message", (event) => {
       const data = event.data;
       if (typeof data === "string") return conn.text(data);
-      const bytes = new Uint8Array(data);
-      if (bytes.byteLength > LIMITS.textFrame) return close(1009, "Message too big");
-      conn.binary(bytes);
+      const take = (bytes) => {
+        if (bytes.byteLength > LIMITS.textFrame) return close(1009, "Message too big");
+        conn.binary(bytes);
+      };
+      if (data instanceof ArrayBuffer) return take(new Uint8Array(data));
+      if (ArrayBuffer.isView(data)) return take(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+      // A Blob, should the runtime ignore binaryType: read it (a state frame arriving late is still better than none).
+      if (typeof data?.arrayBuffer === "function") {
+        if (data.size > LIMITS.textFrame) return close(1009, "Message too big");
+        data.arrayBuffer().then((buffer) => { if (!done) take(new Uint8Array(buffer)); }, () => {});
+      }
     });
     // Answer the player's close, then let go of them.
     server.addEventListener("close", (event) => {

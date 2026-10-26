@@ -33,7 +33,20 @@ One object holds every room, so every player sees every room, as on one `openmtm
 sockets open the whole time players are connected (no hibernation), so rooms and races live in
 memory exactly as in the daemon.
 
+Two things the Worker does differently because of the runtime:
+
+- **Binary frames.** With recent compatibility dates, Workers deliver binary WebSocket messages as
+  `Blob`s. The edge server sets `binaryType = "arraybuffer"` before `accept()` (and still reads a
+  `Blob` if one arrives), because truck state travels in binary frames: read as a `Blob`, every
+  frame looked empty and was dropped, and no player saw the others move.
+- **Dead connections.** A Worker cannot send WebSocket pings, so a player whose connection died
+  without a close (lost Wi-Fi, a laptop put to sleep) would stay in their room forever. The room
+  server drops anyone silent for `idleTimeoutS` (120 s); OpenMTM2 pings every 15 s.
+
 ## Deploying
+
+Starting from nothing, with no Cloudflare account yet: follow
+[CLOUDFLARE-DEPLOY.md](CLOUDFLARE-DEPLOY.md), the step-by-step guide. In short:
 
 You need a free Cloudflare account and Node 22. Wrangler, Cloudflare's tool, runs through `npx`;
 the project still has no dependencies.

@@ -17,6 +17,9 @@ Madness 2 online in rooms. It is independent of DirectPlay and of the game's own
   truck state, 68 bytes each.
 - The server pings every 20 s. A client that answers no ping for two rounds is dropped.
   Standard WebSocket libraries answer pings by themselves.
+- A Cloudflare Worker cannot ping, so the room server also drops a client it has heard nothing
+  from for `idleTimeoutS` (120 s by default), closing with code 4010, and the player leaves their
+  room as if they had disconnected. Clients send `ping` every 15 s to stay in (OpenMTM2 does).
 
 ## Requests and answers
 
@@ -55,6 +58,7 @@ ignored. Text is trimmed, and control characters are removed.
 | 4004 | Removed by the server's admin |
 | 4008 | Kept flooding after rate-limit errors |
 | 4009 | The server is full |
+| 4010 | Nothing heard from the client for `idleTimeoutS` |
 
 ## Client messages
 

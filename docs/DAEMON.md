@@ -51,6 +51,7 @@ the daemon at start with exit code 2. `deploy/server.example.json` is a starting
 | `chatPerSecond` | 2 | | | |
 | `loadTimeoutS` | 120 | | | How long a race waits for everyone to load |
 | `resultsTimeoutS` | 30 | | | How long it waits for everyone's results |
+| `idleTimeoutS` | 120 | | | A connection silent this long is dropped and leaves its room (0: never) |
 | `startDelayMs` | 1500 | | | From "everyone loaded" to the start, so all clients start together |
 | `drainS` | 60 | | `--drain` | On stop, how long running races may go on |
 | `logLevel` | info | `OPENMTM2_LOG_LEVEL` | `--log-level` | debug, info, warn, error |
