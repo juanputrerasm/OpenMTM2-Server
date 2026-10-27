@@ -30,6 +30,8 @@ test("race events: only the known kinds, with their fields", () => {
   const mode = checkClient({ type: "race", e: { kind: "mode", data: { it: 2, points: { 1: 100, 2: 98 } } } });
   assert.deepEqual(mode.message.e.data, { it: 2, points: { 1: 100, 2: 98 } }, "a mode's state is kept whole");
   assert.equal(checkClient({ type: "race", e: { kind: "mode", data: [1] } }).ok, false);
+  assert.equal(checkClient({ type: "race", e: { kind: "modeTruck", vehicle: 2, data: { trucks: { 2: { hp: 900 } } } } }).ok, true);
+  assert.equal(checkClient({ type: "race", e: { kind: "modeTruck", data: {} } }).ok, false, "a modeTruck names its vehicle");
 });
 
 test("truck state round-trips through its 68 bytes", () => {

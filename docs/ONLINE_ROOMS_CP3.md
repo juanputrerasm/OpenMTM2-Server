@@ -494,6 +494,7 @@ server sends it.
 | `horn`, `yeehaw` | `vehicle` | the truck's owner | |
 | `gone` | `vehicle` | the truck's owner, or the server | the truck now drives itself everywhere |
 | `mode` | `data` | owner | an extension mode's state (below) |
+| `modeTruck` | `vehicle`, `data` | the truck's owner | an extension mode's state for the trucks the sender drives (Combat) |
 
 **Extension modes.** OpenMTM2 adds two game modes of its own, Hockey and Tag. A room names one in
 `settings.mode`, empty for an ordinary race. The owner's machine runs the mode's rules and sends

@@ -1,6 +1,15 @@
 OpenMTM2 Server changelog
 =========================
 
+Unreleased
+----------
+
+Additions
+- A new race event, modeTruck: an extension mode's state for the trucks one
+  client drives, sent as that client's vehicle (OpenMTM2's Combat judges each
+  truck on the machine that drives it). Any player may send it for a vehicle it
+  owns, like a damage code. OpenMTM2's Combat needs it in online rooms.
+
 0.1.1 (2026-10-26)
 ------------------
 

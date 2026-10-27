@@ -158,6 +158,7 @@ owner leaves. From then on, every client drives that truck with its own computer
 | `horn`, `yeehaw` | `vehicle` | |
 | `gone` | `vehicle` | The truck now drives itself everywhere |
 | `mode` | `data`, an object | An extension mode's state (Hockey, Tag), owner only. Its shape is the mode's own; OpenMTM2 sends it 5 times a second and at once on an event |
+| `modeTruck` | `vehicle`, `data`, an object | An extension mode's state for the trucks the sender drives (Combat's hit points, wheels and credits), sent as the sender's vehicle |
 
 A client may only send events for trucks it owns. Anything else is dropped without an error.
 
@@ -198,6 +199,12 @@ their state as `race { e: { kind: "mode", data } }`. The others apply that state
 deciding goals, tags or scores themselves. When the owner leaves, the new owner's client takes over
 from the last state. Per-truck values in `data` are keyed by vehicle number. A client that does not
 know a room's mode should not join its races; the server does not check this.
+
+Some modes judge each truck on the client that drives it, as only that client sees its truck's own crashes
+(OpenMTM2's Combat: each truck's hit points, wheels and credits). Such a client sends the state of the trucks it
+drives as `race { e: { kind: "modeTruck", vehicle, data } }`, `vehicle` being its player's (the owner's message
+covers its computer trucks too). Any player may send it, for a vehicle it owns, like a damage code. The owner still
+sends `mode` for what only one client may decide (the end and the winner).
 
 ## Compatibility
 
