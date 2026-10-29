@@ -217,12 +217,13 @@ answer; errors still come back, without an `id`.
 ← { "type": "result", "id": 1, "protocol": 1, "you": { "id": 12 },
     "server": { "name": "Ann's server", "motd": "Welcome!", "version": "0.1.0" },
     "limits": { "playerName": 24, "roomName": 40, "chat": 160, "maxPlayers": 8, ... },
-    "features": ["classic"] }
+    "features": ["classic", "teamChat"] }
 ```
 
 `you.id` is this player's **member id** on the server. `client` is shown to other players and
 logged, never used to decide anything. `features` lists optional server features (`classic`
-means the server can make classic rooms).
+means the server can make classic rooms; `teamChat` means a `chat` may carry `team`, the member ids
+of the sender's teammates, and only they get the line).
 
 **The clock.** Send `ping` a few times and keep the answer with the shortest round trip:
 

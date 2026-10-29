@@ -250,7 +250,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
       return reply({
         protocol: ROOM_PROTOCOL, you: { id: m.id }, server: { name: cfg.name, motd: cfg.motd, version },
         limits: { ...LIMITS, maxPlayers: Math.min(LIMITS.maxPlayers, cfg.maxPlayers) },
-        features: hooks.roomOpened ? ["classic"] : [],
+        features: [...(hooks.roomOpened ? ["classic"] : []), "teamChat"],
       });
     }
     if (!m.hello) return fail(ERROR.HELLO_FIRST, "Say hello first.");
@@ -321,6 +321,10 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         if (msg.to) {
           if (!r.order.includes(msg.to)) return fail(ERROR.NOT_FOUND, "That player is not in the room.");
           send(members.get(msg.to), out);
+        } else if (msg.team) {
+          // A team line: to the teammates the sender names who are in the room, each once.
+          const line = { ...out, team: true };
+          for (const id of new Set(msg.team)) if (id !== m.id && r.order.includes(id)) send(members.get(id), line);
         } else sendRoom(r, out, m.id);
         return reply();
       }
@@ -349,6 +353,9 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         if (!r.settings.track) return fail(ERROR.STATE, "Choose a track first.");
         const notReady = r.order.map((x) => members.get(x)).filter((x) => x !== m && !x.ready);
         if (notReady.length) return fail(ERROR.STATE, `Not ready: ${notReady.map((x) => x.name).join(", ")}.`);
+        // A member who reported not having the room's track cannot race on it.
+        const lacking = r.order.map((x) => members.get(x)).filter((x) => x.content?.sit === r.settings.track.sit && x.content.crc === -1);
+        if (lacking.length) return fail(ERROR.STATE, `Without the track: ${lacking.map((x) => x.name).join(", ")}.`);
         startRace(r, m, msg);
         return reply();
       }

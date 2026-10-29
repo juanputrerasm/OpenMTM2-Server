@@ -1,14 +1,22 @@
 OpenMTM2 Server changelog
 =========================
 
-Unreleased
-----------
+0.2.0 (2026-10-29)
+------------------
 
 Additions
 - A new race event, modeTruck: an extension mode's state for the trucks one
   client drives, sent as that client's vehicle (OpenMTM2's Combat judges each
   truck on the machine that drives it). Any player may send it for a vehicle it
   owns, like a damage code. OpenMTM2's Combat needs it in online rooms.
+- Team chat: a chat message may name the sender's teammates (team, a list of
+  member ids); the line goes to those of them in the room, marked team. The
+  room's teams are the clients' to decide (an extension mode's, or the lobby's),
+  so the server only routes. A classic player on the team gets it as a private
+  line, the original game having no team chat. hello's features now lists
+  teamChat, which clients check before offering a team channel.
+- start is refused while a member has reported not having the room's track
+  (content crc -1): that player could not race on it.
 
 0.1.1 (2026-10-26)
 ------------------

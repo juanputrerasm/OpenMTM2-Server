@@ -44,6 +44,29 @@ async function player(d, name, origin = "http://localhost:8080") {
   return c;
 }
 
+test("a team line reaches only the teammates the sender names", async () => {
+  const d = await server();
+  try {
+    const ann = await player(d, "Ann");
+    const { room } = await ann.req("create", { name: "Teams", maxPlayers: 4 });
+    const ben = await player(d, "Ben");
+    const cal = await player(d, "Cal");
+    await ben.req("join", { room: room.code });
+    await cal.req("join", { room: room.code });
+    assert.ok(ann.hello.features.includes("teamChat"));
+    await ann.req("chat", { text: "left side", team: [ben.hello.you.id, ann.hello.you.id, ben.hello.you.id] });
+    const heard = await ben.next("chat");
+    assert.deepEqual([heard.text, heard.team, heard.private], ["left side", true, false]);
+    // Cal is not on the team: the next line Cal hears is the public one after it.
+    await ann.req("chat", { text: "all of you" });
+    assert.equal((await cal.next("chat")).text, "all of you");
+    assert.equal((await ben.next("chat")).text, "all of you");
+    for (const c of [ann, ben, cal]) c.ws.close();
+  } finally {
+    await d.done();
+  }
+});
+
 test("hello, create, list, join by code, chat, kick", async () => {
   const d = await server();
   try {
@@ -100,7 +123,11 @@ test("a race: start needs everyone ready, loading barrier, relay, results, back 
     await ann.req("profile", { truck: "BIGFOOT.TRK", ready: true });
     const early = await ann.req("start", { weather: 2 });
     assert.equal(early.code, "state", "Ben is not ready");
-    await ben.req("profile", { truck: "GRAVE.TRK", ready: true });
+    await ben.req("profile", { truck: "GRAVE.TRK", ready: true, content: { sit: "TPARK.SIT", crc: -1 } });
+    const lacking = await ann.req("start", { weather: 2 });
+    assert.equal(lacking.code, "state", "Ben does not have the track");
+    assert.match(lacking.message, /Ben/);
+    await ben.req("profile", { content: { sit: "TPARK.SIT", crc: 99 } });
     assert.equal((await ann.req("start", { weather: 2, computers: [{ name: "Bot", truck: "BIGFOOT.TRK" }] })).type, "result");
     const [sa, sb] = await Promise.all([ann.next("starting"), ben.next("starting")]);
     assert.deepEqual(sa.race, sb.race, "everyone gets the same seating");

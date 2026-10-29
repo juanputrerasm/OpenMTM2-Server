@@ -290,7 +290,8 @@ export function createGateway({ bind = "0.0.0.0", tcpPorts, udpPorts, enumPort, 
       setTimeout(() => g.dp.removeRemote(c.dpid), 0);
       return;
     }
-    if (m.type === "chat" && m.private) { packet(g, "chat", { flag: 0, private: 1, text: m.text.slice(0, 81) }, g.vOf.get(m.from), c.dpid); return; }
+    // A private or team line for this player: the original game has no team chat, so it shows as a private line.
+    if (m.type === "chat" && (m.private || m.team)) { packet(g, "chat", { flag: 0, private: 1, text: m.text.slice(0, 81) }, g.vOf.get(m.from), c.dpid); return; }
     if (m.type === "kicked" && m.reason === "removed") {
       packet(g, "kick", {}, hostV(g), c.dpid);
       setTimeout(() => { if (g.classic.has(c.dpid)) g.dp.removeRemote(c.dpid); }, 2000).unref?.();

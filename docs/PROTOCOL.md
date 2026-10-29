@@ -64,17 +64,17 @@ ignored. Text is trimmed, and control characters are removed.
 
 | Type | Fields | Answer |
 |---|---|---|
-| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52") | `protocol`, `you: { id }`, `server: { name, motd, version }`, `limits`, `features` (`["classic"]` when the server can open rooms to classic players) |
+| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52") | `protocol`, `you: { id }`, `server: { name, motd, version }`, `limits`, `features`: `classic` when the server can open rooms to classic players, `teamChat` when it routes team lines (`chat` with `team`) |
 | `ping` | `t`, any number | `{ type: "pong", t, server }`, where `server` is the server's clock in ms |
 | `list` | | `rooms`: the public rooms (below) |
 | `create` | `name` (1 to 40), `password` (optional, up to 32), `maxPlayers` (2 to the server's limit), `public` (default true), `classic` (optional: open to the original game through the server's DirectPlay gateway, `docs/GATEWAY.md`) | `room`. The client is now in it and owns it |
 | `join` | `room` (its code, any case), `password` | `room` |
 | `leave` | | |
 | `profile` | Any of: `truck` (file name), `skill` (0 Rookie, 1 Intermediate, 2 Professional), `location` (below), `ready`, `team`, `latency` (ms), `content: { sit, crc }` | Every member gets `member` |
-| `chat` | `text` (1 to 160), `to` (optional, a member id: private) | |
+| `chat` | `text` (1 to 160), `to` (optional, a member id: private), `team` (optional, member ids: a team line, sent to those of them in the room; `to` wins over it) | |
 | `settings` | Owner only, in the lobby. Any of: `track: { sit, name, crc }` or null, `laps` (1 to 99), `weather` (-1 Random, 0 to 15), `mode` (empty for a plain race), `computers` (0 to 15), `damage`, `collisions` | Every member gets `room` |
 | `kick` | `member`. Owner only | That member gets `kicked`; the others get `left` |
-| `start` | `weather` (0 to 15, already drawn when Random), `computers: [{ name, truck }]`. Owner only, with a track, and with every other member ready | Every member gets `starting` |
+| `start` | `weather` (0 to 15, already drawn when Random), `computers: [{ name, truck }]`. Owner only, with a track, with every other member ready, and with no member whose `content` says it lacks the track | Every member gets `starting` |
 | `loaded` | | The loading barrier, below |
 | `race` | `e`, a race event (below) | No answer |
 | `result` | `laps`, `total` (s), `best` (s, or the score in Summit), `lapsLed` | The results barrier, below |
@@ -97,7 +97,7 @@ client does not have the track. After every change of track, each member reports
 | `left` | `member` (id), `reason` (`left`, `disconnected`, `removed`) | Someone left |
 | `owner` | `member` | The owner left; the longest-present member owns the room now |
 | `room` | `room` | Settings changed, or a race ended |
-| `chat` | `from`, `name`, `text`, `private` | Senders do not get their own lines back |
+| `chat` | `from`, `name`, `text`, `private`, `team` (a team line) | Senders do not get their own lines back |
 | `kicked` | `reason` (`removed`, or why the admin closed the room) | This client is out of the room, but still connected |
 | `starting` | `race` | The owner started |
 | `waiting` | `left`: names | Someone loaded; these have not yet |

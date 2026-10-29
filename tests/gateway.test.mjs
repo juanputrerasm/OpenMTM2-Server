@@ -58,7 +58,7 @@ test("a classic room: a retail player and an OpenMTM2 player race together", { t
     const next = (type, test = () => true) => ws.next((m) => m.json?.type === type && test(m.json)).then((m) => m.json);
     ann = ws;
     const hello = await req("hello", { protocol: ROOM_PROTOCOL, name: "Ann" });
-    assert.deepEqual(hello.features, ["classic"]);
+    assert.deepEqual(hello.features, ["classic", "teamChat"]);
     const made = await req("create", { name: "Classic night", classic: true, maxPlayers: 12 });
     assert.equal(made.room.classic, true);
     assert.equal(made.room.maxPlayers, 8, "the game's limit");
