@@ -1,6 +1,6 @@
 {
   "name": "openmtm2-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Network services for OpenMTM2: the classic DirectPlay helper and the online room server.",
   "private": true,
   "type": "module",

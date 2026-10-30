@@ -272,7 +272,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         const room = {
           code: newCode(), name: msg.name, password: msg.password || "", public: msg.public !== false, classic: !!msg.classic,
           maxPlayers: Math.min(msg.maxPlayers ?? cap, cap), owner: m.id, order: [], state: ROOM_STATE.LOBBY,
-          settings: { track: null, laps: 3, weather: 0, mode: "", computers: 0, damage: true, collisions: true }, race: null,
+          settings: { track: null, laps: 3, weather: 0, mode: "", computers: 0, damage: true, collisions: true, wheels: false, wheelsRepairS: 8 }, race: null,
         };
         rooms.set(room.code, room);
         log("info", "room created", { room: room.code, by: m.id, classic: room.classic });
@@ -333,7 +333,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         if (r.state !== ROOM_STATE.LOBBY) return fail(ERROR.STATE, "Not during a race.");
         const s = r.settings;
         const trackChanged = msg.track !== undefined && (msg.track?.sit !== s.track?.sit || msg.track?.crc !== s.track?.crc);
-        for (const k of ["track", "laps", "weather", "mode", "computers", "damage", "collisions"]) if (msg[k] !== undefined) s[k] = msg[k];
+        for (const k of ["track", "laps", "weather", "mode", "computers", "damage", "collisions", "wheels", "wheelsRepairS"]) if (msg[k] !== undefined) s[k] = msg[k];
         if (r.classic) { s.computers = 0; s.mode = ""; }
         if (trackChanged) for (const id of r.order) members.get(id).content = null;
         sendRoom(r, { type: "room", room: roomView(r) });

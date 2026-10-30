@@ -72,7 +72,7 @@ ignored. Text is trimmed, and control characters are removed.
 | `leave` | | |
 | `profile` | Any of: `truck` (file name), `skill` (0 Rookie, 1 Intermediate, 2 Professional), `location` (below), `ready`, `team`, `latency` (ms), `content: { sit, crc }` | Every member gets `member` |
 | `chat` | `text` (1 to 160), `to` (optional, a member id: private), `team` (optional, member ids: a team line, sent to those of them in the room; `to` wins over it) | |
-| `settings` | Owner only, in the lobby. Any of: `track: { sit, name, crc }` or null, `laps` (1 to 99), `weather` (-1 Random, 0 to 15), `mode` (empty for a plain race), `computers` (0 to 15), `damage`, `collisions` | Every member gets `room` |
+| `settings` | Owner only, in the lobby. Any of: `track: { sit, name, crc }` or null, `laps` (1 to 99), `weather` (-1 Random, 0 to 15), `mode` (empty for a plain race), `computers` (0 to 15), `damage`, `collisions`, `wheels` and `wheelsRepairS` (0 to 600: OpenMTM2's Wheels damage, on or off, and the seconds before the wheels go back on, 0 never; default off and 8) | Every member gets `room` |
 | `kick` | `member`. Owner only | That member gets `kicked`; the others get `left` |
 | `start` | `weather` (0 to 15, already drawn when Random), `computers: [{ name, truck }]`. Owner only, with a track, with every other member ready, and with no member whose `content` says it lacks the track | Every member gets `starting` |
 | `loaded` | | The loading barrier, below |
@@ -159,6 +159,7 @@ owner leaves. From then on, every client drives that truck with its own computer
 | `gone` | `vehicle` | The truck now drives itself everywhere |
 | `mode` | `data`, an object | An extension mode's state (Hockey, Tag), owner only. Its shape is the mode's own; OpenMTM2 sends it 5 times a second and at once on an event |
 | `modeTruck` | `vehicle`, `data`, an object | An extension mode's state for the trucks the sender drives (Combat's hit points, wheels and credits), sent as the sender's vehicle |
+| `wheels` | `vehicle`, `lost` (0 to 15), `axles` (0 to 3), optional `wear` (four numbers 0 to 1), `repairs`, `pits` | OpenMTM2's Wheels damage: the truck's wheels as the machine that drives it judges them. `lost` and `axles` are bit masks (wheels 0 to 3; axle 0 front, 1 rear). Sent on a change, and the wear at most once a second |
 
 A client may only send events for trucks it owns. Anything else is dropped without an error.
 

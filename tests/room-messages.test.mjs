@@ -32,6 +32,10 @@ test("race events: only the known kinds, with their fields", () => {
   assert.equal(checkClient({ type: "race", e: { kind: "mode", data: [1] } }).ok, false);
   assert.equal(checkClient({ type: "race", e: { kind: "modeTruck", vehicle: 2, data: { trucks: { 2: { hp: 900 } } } } }).ok, true);
   assert.equal(checkClient({ type: "race", e: { kind: "modeTruck", data: {} } }).ok, false, "a modeTruck names its vehicle");
+  assert.equal(checkClient({ type: "race", e: { kind: "wheels", vehicle: 3, lost: 5, axles: 1, wear: [1, 0.5, 0, 0.25], repairs: 2, pits: 1 } }).ok, true);
+  assert.equal(checkClient({ type: "race", e: { kind: "wheels", vehicle: 3, lost: 16, axles: 0 } }).ok, false, "four wheels, four bits");
+  assert.equal(checkClient({ type: "race", e: { kind: "wheels", vehicle: 3, lost: 1, axles: 0, wear: [2, 0, 0, 0] } }).ok, false, "wear is a share");
+  assert.equal(checkClient({ type: "settings", wheels: true, wheelsRepairS: 12 }).ok, true);
 });
 
 test("truck state round-trips through its 68 bytes", () => {

@@ -1,6 +1,17 @@
 OpenMTM2 Server changelog
 =========================
 
+0.3.0 (2026-10-30)
+------------------
+
+Additions
+- A new race event, wheels: a truck's wheels under OpenMTM2's Wheels damage
+  (lost and torn-away axles as bit masks, each wheel's wear, the repair and pit
+  counts), sent by the client that drives the truck, like a damage code.
+- Two room settings for it, wheels (on or off, default off) and wheelsRepairS
+  (the seconds before the wheels go back on, 0 never; default 8), the owner's
+  rule for the whole room.
+
 0.2.0 (2026-10-29)
 ------------------
 
