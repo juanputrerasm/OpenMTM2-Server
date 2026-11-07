@@ -13,6 +13,13 @@ Additions
   number or true/false; 2048 bytes as JSON at most. The server keeps it whole
   and sends it to every member with the room, as it does the other settings.
 
+Notes
+- OpenMTM2's Deathmatch (OpenMTM2 0.7.0) plays on this server as it is: its
+  mode state and each machine's modeTruck (hit points, wheels, credits, and
+  each truck's own wrecks, times wrecked and respawns) are relayed whole, and
+  its host rules (ext.deathmatch.*) fit the rules setting. A full room's
+  modeTruck is under half of a text frame (tests/room-messages.test.mjs).
+
 0.3.0 (2026-10-30)
 ------------------
 

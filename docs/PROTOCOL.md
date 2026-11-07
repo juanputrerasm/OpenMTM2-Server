@@ -158,7 +158,7 @@ owner leaves. From then on, every client drives that truck with its own computer
 | `horn`, `yeehaw` | `vehicle` | |
 | `gone` | `vehicle` | The truck now drives itself everywhere |
 | `mode` | `data`, an object | An extension mode's state (Hockey, Tag), owner only. Its shape is the mode's own; OpenMTM2 sends it 5 times a second and at once on an event |
-| `modeTruck` | `vehicle`, `data`, an object | An extension mode's state for the trucks the sender drives (Combat's hit points, wheels and credits), sent as the sender's vehicle |
+| `modeTruck` | `vehicle`, `data`, an object | An extension mode's state for the trucks the sender drives (Combat's and Deathmatch's hit points, wheels and credits; Deathmatch's also each truck's own wrecks, times wrecked and respawns), sent as the sender's vehicle |
 | `wheels` | `vehicle`, `lost` (0 to 15), `axles` (0 to 3), optional `wear` (four numbers 0 to 1), `repairs`, `pits` | OpenMTM2's Wheels damage: the truck's wheels as the machine that drives it judges them. `lost` and `axles` are bit masks (wheels 0 to 3; axle 0 front, 1 rear). Sent on a change, and the wear at most once a second |
 
 A client may only send events for trucks it owns. Anything else is dropped without an error.
@@ -194,7 +194,7 @@ are worked out on each machine against its own copies, as in the classic game.
 
 ## Extension modes
 
-A room's `settings.mode` names an extension mode (OpenMTM2's Hockey or Tag), empty for a plain race.
+A room's `settings.mode` names an extension mode (OpenMTM2's Hockey, Tag, Combat or Deathmatch), empty for a plain race.
 Every client runs the same mode. The owner's client judges it: it runs the mode's rules and sends
 their state as `race { e: { kind: "mode", data } }`. The others apply that state instead of
 deciding goals, tags or scores themselves. When the owner leaves, the new owner's client takes over
@@ -202,7 +202,7 @@ from the last state. Per-truck values in `data` are keyed by vehicle number. A c
 know a room's mode should not join its races; the server does not check this.
 
 Some modes judge each truck on the client that drives it, as only that client sees its truck's own crashes
-(OpenMTM2's Combat: each truck's hit points, wheels and credits). Such a client sends the state of the trucks it
+(OpenMTM2's Combat and Deathmatch: each truck's hit points, wheels and credits). Such a client sends the state of the trucks it
 drives as `race { e: { kind: "modeTruck", vehicle, data } }`, `vehicle` being its player's (the owner's message
 covers its computer trucks too). Any player may send it, for a vehicle it owns, like a damage code. The owner still
 sends `mode` for what only one client may decide (the end and the winner).

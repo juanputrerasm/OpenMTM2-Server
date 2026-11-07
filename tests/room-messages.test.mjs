@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  checkClient, checkRaceEvent, encodeState, decodeState, STATE_SIZE, seqNewer, roomCode, isRoomCode, ERROR,
+  checkClient, checkRaceEvent, encodeState, decodeState, STATE_SIZE, seqNewer, roomCode, isRoomCode, ERROR, LIMITS,
 } from "../protocol/room-messages.js";
 
 test("a client's messages are checked and trimmed to their fields", () => {
@@ -43,6 +43,27 @@ test("race events: only the known kinds, with their fields", () => {
   assert.equal(checkClient({ type: "settings", rules: { "bad key": 1 } }).ok, false);
   assert.equal(checkClient({ type: "settings", rules: { "ext.race-rumble.laps": 3, "ext.cops-robbers.minutes": 5 } }).ok, true, "an extension id may have hyphens");
   assert.equal(checkClient({ type: "settings", rules: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`k${i}`, "x".repeat(20)])) }).ok, false, "bounded");
+});
+
+test("OpenMTM2's Deathmatch fits: the mode, its host rules, and a full room's modeTruck within one text frame", () => {
+  assert.equal(checkClient({ type: "settings", mode: "deathmatch" }).ok, true);
+  const rules = {
+    "ext.deathmatch.minutes": 5, "ext.deathmatch.toughness": "normal", "ext.deathmatch.respawn": true, "ext.deathmatch.repairs": false,
+    "ext.deathmatch.cpuRepairs": true, "ext.deathmatch.helicopter": false, "ext.deathmatch.names": true, "ext.deathmatch.aggression": "high",
+  };
+  assert.equal(checkClient({ type: "settings", rules }).ok, true);
+  // The owner judging eight trucks (its own and seven computer ones), each as OpenMTM2 0.7.0 sends it, and owing all of them.
+  const truck = (v) => ({
+    g: 0.123456789012345, e: 0.987654321098765, b: 0.5555555555555556, w: [0.1111111111111111, 0.2222222222222222, 0.3333333333333333, 1],
+    l: [false, true, false, false], cr: 12345, d: 6789, wk: 12, rp: 3, wr: false, q: false, by: v % 8 + 1, sw: 2, dt: 9, rs: 9,
+  });
+  const data = { trucks: Object.fromEntries(Array.from({ length: 8 }, (_, i) => [i + 1, truck(i + 1)])), owed: Object.fromEntries(Array.from({ length: 8 }, (_, i) => [i + 1, { hp: 123456.789, wrecks: 40 }])) };
+  const frame = JSON.stringify({ type: "race", e: { kind: "modeTruck", vehicle: 1, data } });
+  assert.ok(frame.length < LIMITS.textFrame / 2, `${frame.length} bytes`);
+  const checked = checkClient(JSON.parse(frame));
+  assert.equal(checked.ok, true);
+  assert.deepEqual(checked.message.e.data, data, "kept whole");
+  assert.equal(checkClient({ type: "race", e: { kind: "mode", data: { over: false, winner: 0, rules: { toughness: "tough", respawn: true, repairs: false, helicopter: false } } } }).ok, true);
 });
 
 test("truck state round-trips through its 68 bytes", () => {
