@@ -19,7 +19,7 @@ export const ROOM_PATH = "/play";
 /** Sizes the server enforces. */
 export const LIMITS = Object.freeze({
   playerName: 24, roomName: 40, password: 32, chat: 160, truck: 40, sit: 20, trackName: 80, mode: 32,
-  maxPlayers: 16, computers: 15, laps: 99, textFrame: 8192, code: 6,
+  maxPlayers: 16, computers: 15, laps: 99, textFrame: 8192, code: 6, rules: 2048,
 });
 
 /** Error codes in `{ type: "error", code }`. */
@@ -59,6 +59,8 @@ const list = (item, max, opt) => ["list", item, max, opt];
 const any = (opt) => ["any", opt];
 /** Any JSON object, kept whole (its size is bounded by the frame's). */
 const freeObj = (opt) => ["freeobj", opt];
+/** A flat object of rules: names of letters, digits, dots, underscores and hyphens, values text, number or boolean only, LIMITS.rules bytes as JSON at most. */
+const rulesObj = (opt) => ["rules", opt];
 const OPT = true;
 
 const TRACK = obj({ sit: str(1, LIMITS.sit), name: str(0, LIMITS.trackName, OPT), crc: int(-1, 0xffffffff) }, OPT);
@@ -81,6 +83,9 @@ export const CLIENT_MESSAGES = Object.freeze({
     computers: int(0, LIMITS.computers, OPT), damage: bool(OPT), collisions: bool(OPT),
     // OpenMTM2's Wheels damage, the owner's rule for the room: on or off, and the seconds before the wheels go back on (0 never).
     wheels: bool(OPT), wheelsRepairS: int(0, 600, OPT),
+    // OpenMTM2's host rules (0.4.0): the physics model, the computer trucks' behaviour, the extension's settings and
+    // the other game rules, as one flat object the server keeps whole and hands to every member (`rulesObj`).
+    rules: rulesObj(OPT),
   },
   kick: { member: int(1, 0x7fffffff) },
   start: { weather: int(0, 15), computers: list(obj({ name: str(1, LIMITS.playerName), truck: str(0, LIMITS.truck) }), LIMITS.computers, OPT) },
@@ -132,6 +137,17 @@ function checkValue(spec, v, path) {
     }
     case "any":
       return { ok: true, value: v };
+    case "rules": {
+      if (typeof v !== "object" || Array.isArray(v)) return { ok: false, why: `${path} must be an object` };
+      const out = {};
+      for (const [k, x] of Object.entries(v)) {
+        if (!/^[A-Za-z0-9_.-]{1,48}$/.test(k)) return { ok: false, why: `${path}.${k} is not a rule name` };
+        if (typeof x === "number" ? !Number.isFinite(x) : typeof x !== "boolean" && typeof x !== "string") return { ok: false, why: `${path}.${k} must be text, a number or true/false` };
+        out[k] = typeof x === "string" ? x.slice(0, 64) : x;
+      }
+      if (JSON.stringify(out).length > LIMITS.rules) return { ok: false, why: `${path} is too long` };
+      return { ok: true, value: out };
+    }
     case "freeobj":
       if (typeof v !== "object" || Array.isArray(v)) return { ok: false, why: `${path} must be an object` };
       return { ok: true, value: v };

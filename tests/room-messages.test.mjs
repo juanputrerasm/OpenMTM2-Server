@@ -36,6 +36,13 @@ test("race events: only the known kinds, with their fields", () => {
   assert.equal(checkClient({ type: "race", e: { kind: "wheels", vehicle: 3, lost: 16, axles: 0 } }).ok, false, "four wheels, four bits");
   assert.equal(checkClient({ type: "race", e: { kind: "wheels", vehicle: 3, lost: 1, axles: 0, wear: [2, 0, 0, 0] } }).ok, false, "wear is a share");
   assert.equal(checkClient({ type: "settings", wheels: true, wheelsRepairS: 12 }).ok, true);
+  const rules = checkClient({ type: "settings", rules: { physics: "evo2", aiBehaviour: "omtm2", "ext.combat.names": false, aiSpeed: 1.2 } });
+  assert.equal(rules.ok, true);
+  assert.deepEqual(rules.message.rules, { physics: "evo2", aiBehaviour: "omtm2", "ext.combat.names": false, aiSpeed: 1.2 }, "the host's rules are kept whole");
+  assert.equal(checkClient({ type: "settings", rules: { nested: { a: 1 } } }).ok, false, "rules are flat");
+  assert.equal(checkClient({ type: "settings", rules: { "bad key": 1 } }).ok, false);
+  assert.equal(checkClient({ type: "settings", rules: { "ext.race-rumble.laps": 3, "ext.cops-robbers.minutes": 5 } }).ok, true, "an extension id may have hyphens");
+  assert.equal(checkClient({ type: "settings", rules: Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`k${i}`, "x".repeat(20)])) }).ok, false, "bounded");
 });
 
 test("truck state round-trips through its 68 bytes", () => {

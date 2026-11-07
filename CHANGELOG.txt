@@ -1,6 +1,18 @@
 OpenMTM2 Server changelog
 =========================
 
+0.4.0 (2026-11-06)
+------------------
+
+Additions
+- A new room setting, rules: the owner's game rules for OpenMTM2 0.6.6 as one
+  flat object (the physics model, the computer trucks' behaviour and speed,
+  the helicopter's race line drop, the selected extension's settings and the
+  like). Names are letters, digits, dots, underscores and
+  hyphens (an extension id such as race-rumble); values are text, a
+  number or true/false; 2048 bytes as JSON at most. The server keeps it whole
+  and sends it to every member with the room, as it does the other settings.
+
 0.3.0 (2026-10-30)
 ------------------
 
