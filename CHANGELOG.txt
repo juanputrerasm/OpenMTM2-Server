@@ -1,6 +1,51 @@
 OpenMTM2 Server changelog
 =========================
 
+0.4.1 (2026-11-09)
+------------------
+
+Additions
+- Relay rooms, for Community Patch 3 and 4 (docs/PROTOCOL.md "Relay rooms"):
+  an opaque relay channel of binary frames tagged 0xC3 (a flags byte, a u16
+  member id, up to 1200 bytes of payload). The server writes the sender's
+  member id into every frame it forwards, so no client can speak as another,
+  and sends it to one member or to all the others, in the lobby and in the
+  race. 32768 bytes a second per connection, bursts of 65536
+  (relayBytesPerSecond, relayBurst); frames past the rate or the size are
+  dropped silently. Relay frames in an ordinary room are dropped.
+- hello.caps: up to 16 capability names from the client. A client that
+  declares cp3-relay/1 makes relay rooms (create relay: false for an ordinary
+  one), and only clients that declared it may join one; the others get the
+  new error code capability. Ordinary rooms stay open to every client. The
+  server lists cp3-relay/1 in its features, the hello answer gives the relay
+  limits, and rooms and the room list carry relay.
+- Relay rooms run no server barriers: start goes straight to racing, loaded
+  and result are answered and do nothing, there is no results message, and
+  the owner's new finish message ends the race.
+- profile.truckCrc: the CRC-32/MPEG-2 of the truck's POD, as the track's
+  checksum, passed on in the member and in each race entrant.
+- --test-room [name], --test-room-relay, --test-room-echo (testRoom,
+  testRoomRelay, testRoomEcho; OPENMTM2_TEST_ROOM): a permanent public room,
+  code TESTRM, made at start, owned by its first member, kept when empty; as a
+  relay room, and optionally sending relay frames back to their sender.
+- Game packet profiles (protocol/mtm2-packets.js): retail (0x0201), cp3
+  (0x3400) and cp4 (0x3402), picked from the version in a player's 0x03 by
+  profileForVersion; CP3_NET_VERSION, CP4_NET_VERSION. CP3's 65-byte 0x02
+  (f32 radian angles and steering, u32 sender tick at +0x3D), CP4's 116-byte
+  0x02 (and up to two older poses with their ages), CP4's 40-byte 0x14
+  (raceId at +0x24), 0x26 progress and 0x27 collision (CP3 and CP4), 0x28
+  race loaded and 0x29 race release (CP4). encodePacket, decodePacket,
+  packetSize, stateFields and stateFromPacket take the profile as a last
+  argument, retail by default; retail bytes are unchanged. Layouts from
+  OpenMTM2 docs/CP4_EXE_ANALYSIS.md section 9.
+
+Changes
+- decodePacket is strict: a packet must have its profile's exact size
+  (before, longer packets were read); others come back with kind null and a
+  reason, the voice radio (0x89) too.
+- Member ids are 1 to 65535 and wrap, skipping those in use, so they fit the
+  relay frame's u16.
+
 0.4.0 (2026-11-06)
 ------------------
 

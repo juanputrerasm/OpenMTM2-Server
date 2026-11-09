@@ -14,7 +14,8 @@ Madness 2 online in rooms. It is independent of DirectPlay and of the game's own
 - Browsers send `Origin`, which the server checks. Native clients send none and are allowed by
   default.
 - **Text frames** hold one JSON object each (UTF-8), at most 8192 bytes. **Binary frames** hold
-  truck state, 68 bytes each.
+  truck state, 68 bytes each, or, in a relay room, relay frames (first byte 0xC3, below). A
+  binary frame over 8192 bytes closes the connection with 1009.
 - The server pings every 20 s. A client that answers no ping for two rounds is dropped.
   Standard WebSocket libraries answer pings by themselves.
 - A Cloudflare Worker cannot ping, so the room server also drops a client it has heard nothing
@@ -48,6 +49,7 @@ ignored. Text is trimmed, and control characters are removed.
 | `rate-limited` | Too many messages. Slow down |
 | `limit` | The server has no room for another room |
 | `shutting-down` | The server takes no new rooms |
+| `capability` | The room needs a capability this client did not declare in `hello.caps` (a relay room needs `cp3-relay/1`) |
 
 | Close code | |
 |---|---|
@@ -64,13 +66,13 @@ ignored. Text is trimmed, and control characters are removed.
 
 | Type | Fields | Answer |
 |---|---|---|
-| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52") | `protocol`, `you: { id }`, `server: { name, motd, version }`, `limits`, `features`: `classic` when the server can open rooms to classic players, `teamChat` when it routes team lines (`chat` with `team`) |
+| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52"), `caps` (optional: up to 16 capability names, each 1 to 32 of `a-z 0-9 . / -`, such as `cp3-relay/1`) | `protocol`, `you: { id }` (1 to 65535), `server: { name, motd, version }`, `limits`, `features`: `classic` when the server can open rooms to classic players, `teamChat` when it routes team lines (`chat` with `team`), `cp3-relay/1` when it has relay rooms, `testRoom` when it has a test room; `relay: { tag, header, maxPayload, bytesPerSecond, burst }` |
 | `ping` | `t`, any number | `{ type: "pong", t, server }`, where `server` is the server's clock in ms |
 | `list` | | `rooms`: the public rooms (below) |
-| `create` | `name` (1 to 40), `password` (optional, up to 32), `maxPlayers` (2 to the server's limit), `public` (default true), `classic` (optional: open to the original game through the server's DirectPlay gateway, `docs/GATEWAY.md`) | `room`. The client is now in it and owns it |
+| `create` | `name` (1 to 40), `password` (optional, up to 32), `maxPlayers` (2 to the server's limit), `public` (default true), `classic` (optional: open to the original game through the server's DirectPlay gateway, `docs/GATEWAY.md`), `relay` (optional: a relay room, below; by default true when the creator declared `cp3-relay/1`, and never with `classic`) | `room`. The client is now in it and owns it |
 | `join` | `room` (its code, any case), `password` | `room` |
 | `leave` | | |
-| `profile` | Any of: `truck` (file name), `skill` (0 Rookie, 1 Intermediate, 2 Professional), `location` (below), `ready`, `team`, `latency` (ms), `content: { sit, crc }` | Every member gets `member` |
+| `profile` | Any of: `truck` (file name), `truckCrc` (the checksum of the POD that holds the truck, as for tracks; -1 unknown), `skill` (0 Rookie, 1 Intermediate, 2 Professional), `location` (below), `ready`, `team`, `latency` (ms), `content: { sit, crc }` | Every member gets `member` |
 | `chat` | `text` (1 to 160), `to` (optional, a member id: private), `team` (optional, member ids: a team line, sent to those of them in the room; `to` wins over it) | |
 | `settings` | Owner only, in the lobby. Any of: `track: { sit, name, crc }` or null, `laps` (1 to 99), `weather` (-1 Random, 0 to 15), `mode` (empty for a plain race), `computers` (0 to 15), `damage`, `collisions`, `wheels` and `wheelsRepairS` (0 to 600: OpenMTM2's Wheels damage, on or off, and the seconds before the wheels go back on, 0 never; default off and 8), `rules` (0.4.0: OpenMTM2's host rules, a flat object of text, number or true/false values under names of letters, digits, dots, underscores and hyphens, 2048 bytes as JSON at most; default `{}`) | Every member gets `room` |
 | `kick` | `member`. Owner only | That member gets `kicked`; the others get `left` |
@@ -78,6 +80,7 @@ ignored. Text is trimmed, and control characters are removed.
 | `loaded` | | The loading barrier, below |
 | `race` | `e`, a race event (below) | No answer |
 | `result` | `laps`, `total` (s), `best` (s, or the score in Summit), `lapsLed` | The results barrier, below |
+| `finish` | Owner only, relay rooms only | The race is over: every member gets `room`, back in the lobby (no `results`) |
 
 **Locations** (the lobby's Status column) are the classic game's: 1 Start Screen, 2 Driver
 Check-in, 3 Race Screen, 4 Garage, 5 Multiplayer Screen, 6 Hall Of Fame, 7 Viewing Results,
@@ -89,13 +92,18 @@ no final XOR) over the whole POD archive that holds `WORLD\<SIT>`. The value is 
 client does not have the track. After every change of track, each member reports
 `content: { sit, crc }` for its own copy.
 
+**Trucks** are named by their TRK file name and, optionally, `truckCrc`: the same CRC-32/MPEG-2,
+over the whole POD archive that holds the truck. The server passes it on in the member and in
+each race entrant (and a computer truck's, from `start`) and does not act on it: a client that
+wants every copy of a truck to match compares the values itself.
+
 ## Server messages
 
 | Type | Fields | When |
 |---|---|---|
 | `member` | `member` | Someone joined or changed their profile |
 | `left` | `member` (id), `reason` (`left`, `disconnected`, `removed`) | Someone left |
-| `owner` | `member` | The owner left; the longest-present member owns the room now |
+| `owner` | `member` | The owner left; the longest-present member owns the room now (classic players never do). Also when someone joins the empty test room. Every client follows the server's choice |
 | `room` | `room` | Settings changed, or a race ended |
 | `chat` | `from`, `name`, `text`, `private`, `team` (a team line) | Senders do not get their own lines back |
 | `kicked` | `reason` (`removed`, or why the admin closed the room) | This client is out of the room, but still connected |
@@ -106,12 +114,13 @@ client does not have the track. After every change of track, each member reports
 | `results` | `race`, `results: { "<vehicle>": { laps, total, best, lapsLed } }` | The race is over |
 | `shutdown` | `text`, `inMs` | The server is stopping |
 
-**A room** is `{ code, name, owner, locked, public, maxPlayers, state, classic, settings, members, race }`.
+**A room** is `{ code, name, owner, locked, public, maxPlayers, state, classic, relay, test, settings, members, race }`;
+`relay` marks a relay room, `test` the server's test room, whose `owner` is 0 while it is empty.
 `state` is `lobby`, `loading` or `racing`. **A member** is `{ id, name, client, truck, skill,
-location, ready, team, latency, content, classic }`; `classic` marks a player of the original game,
-in the room through the gateway. Names are unique within a room: a second "Ann"
+location, ready, team, latency, content, classic, truckCrc, caps }`; `classic` marks a player of the original game,
+in the room through the gateway, and `caps` is what it declared in `hello`. Names are unique within a room: a second "Ann"
 becomes "Ann (2)". **A room in the list** is `{ code, name, players, maxPlayers, locked, state,
-classic, track: { sit, name } | null, mode, owner }`, with the owner's name.
+classic, relay, test, track: { sit, name } | null, mode, owner }`, with the owner's name.
 
 **A classic room** keeps the original game's limits: at most 8 players, no computer opponents
 (`computers` stays 0), no `mode`. Its classic members never own it; when only they are left, the
@@ -125,7 +134,7 @@ links are its own page address with `?room=CODE&server=<address>` added.
 1. **Start.** The owner sends `start`. The server seats everyone in random order and gives
    each truck a **vehicle number** from 1. The start grid place is the vehicle number minus 1.
    It answers with `starting`: `race: { id, sit, track, laps, weather, mode, entrants }`, each
-   entrant being `{ vehicle, member, computer, name, truck, owner }`. Computer trucks have
+   entrant being `{ vehicle, member, computer, name, truck, truckCrc, owner }`. Computer trucks have
    `member: null`, and the owner's client drives them.
 2. **Loading.** Each client loads the track, then sends `loaded`. The server sends `waiting`
    as clients finish. When all have loaded, or after 120 s, it sends `synced` with `startAt`,
@@ -191,6 +200,61 @@ any number that is not finite is dropped.
 frame sets their controls, velocity and angles. OpenMTM2 blends the position error away over
 0.5 s, and moves the truck at once when the error is beyond 100 ft. Collisions between trucks
 are worked out on each machine against its own copies, as in the classic game.
+
+## Relay rooms
+
+A relay room carries a client's own game packets, opaque to the server, instead of the truck
+state frame and the server's race barriers. It is for Community Patch 3 and 4, whose packets
+(their own position, collision and load barrier packets) do not fit the 68-byte frame. Its
+capability is `cp3-relay/1`.
+
+**Who.** A room's kind is fixed when it is made. A client that declared `cp3-relay/1` in
+`hello.caps` makes a relay room by default (`create { relay: false }` for an ordinary one); a
+client without it cannot make one. Only clients that declared `cp3-relay/1` may join a relay room;
+the others get `capability`. So every member of a relay room speaks the relay. Ordinary rooms stay
+open to every client, as before. The room list and the room carry `relay`.
+
+**Relay frames** are binary frames, little-endian, whose first byte is 0xC3 (a state frame's is 1):
+
+```
+client to server                         server to client
+ 0  u8   tag     0xC3                     0  u8   tag     0xC3
+ 1  u8   flags   the client's own         1  u8   flags   as the sender sent them
+ 2  u16  to      member id, 0 = all       2  u16  from    the sender's member id
+         the other members                        (written by the server)
+ 4  ...  payload, 0 to 1200 bytes         4  ...  payload, unchanged
+```
+
+- The server writes the sender's member id into bytes 2 and 3 of every frame it forwards, over
+  whatever the sender put there, so a client cannot speak as another. Member ids are 1 to 65535.
+- `to` 0 sends the frame to every other member of the room; a member id sends it to that member
+  only, if it is in the room. A frame for anyone else, or for the sender itself, is dropped.
+- Relay frames pass whenever the sender is in a relay room: in the lobby, while loading and while
+  racing. Outside a relay room, a frame tagged 0xC3 is dropped.
+- A frame shorter than 4 bytes or with more than 1200 bytes of payload is dropped. Any binary
+  frame over 8192 bytes closes the connection with 1009.
+- **Rate**: each connection may send 32768 bytes a second of relay frames (whole frames, header
+  included), with bursts up to 65536 bytes (`relayBytesPerSecond`, `relayBurst`; `hello` says the
+  server's). Frames past it are dropped silently: the relay is for unreliable traffic, and a client
+  that needs delivery acknowledges over it. Truck state frames keep their own limit.
+- A receiver whose WebSocket has more than 256 KB waiting misses binary frames (state and relay)
+  until it catches up; at 4 MB of waiting text it is closed with 1008. (On Cloudflare, which does
+  not report it, neither applies.)
+- The frames are relayed in the order the server receives them; order across senders is not kept.
+
+**No server barriers.** In a relay room the clients run their own loading barrier and results over
+the relay. `start` still checks the owner, the track, Ready and the members' `content`, seats the
+race and sends `starting`, and the room is `racing` at once: there is no `waiting` and no `synced`,
+`loaded` and `result` are answered and do nothing, and there is no `results`. The owner sends
+`finish` when the race is over; the room is then back in the lobby and every member gets `room`. If
+every member leaves the race, the room goes back to the lobby by itself. Room membership, chat,
+settings, `kick`, the `owner` choice and `gone` work as in any room. The owner's client drives the
+computer trucks, as in any room.
+
+**The test room.** A server started with `--test-room` has one permanent public room, code `TESTRM`
+(`features` has `testRoom`). With `--test-room-relay` it is a relay room; with `--test-room-echo` it
+also sends each relay frame for everyone, or for the sender's own id, back to the sender. See
+`docs/DAEMON.md`.
 
 ## Extension modes
 

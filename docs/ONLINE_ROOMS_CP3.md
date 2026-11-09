@@ -1,6 +1,9 @@
 # Online rooms for Monster Truck Madness 2: an overview for Community Patch 3
 
-**Status: a proposal, open for discussion.** Nothing here is final. The room protocol is a draft
+**Status: a proposal, open for discussion; partly settled.** The CP3 developer answered it
+([reply_to_kmaster_online_rooms.md](https://mtm2.com/~mtmg/misc/reply_to_kmaster_online_rooms.md)),
+and our reply is [`REPLY_TO_CP3_ONLINE_ROOMS.md`](REPLY_TO_CP3_ONLINE_ROOMS.md). What that settled is
+listed in section 6 and marked in section 7. The rest is not final. The room protocol is a draft
 of version 1, and it is frozen only after Community Patch 3's developer has reviewed it. His
 answers to the questions at the end may change it. OpenMTM2 and its server will then follow
 whatever is agreed.
@@ -586,6 +589,22 @@ The differences are deliberate:
 
 ## 6. What is settled and what is not
 
+**Settled with the CP3 developer, and built (`PROTOCOL.md`, "Relay rooms"):**
+
+- CP3 and CP4 carry their own game packets in **relay rooms**: binary frames tagged 0xC3, a flags
+  byte, a u16 member id (to: 0 for all others; from: written by the server), and up to 1200 bytes of
+  payload, at 32 KB a second per connection with 64 KB bursts. The 68-byte state frame and
+  section 5's translation are for OpenMTM2 rooms.
+- `hello.caps`, with `cp3-relay/1`. Relay rooms admit only clients that declared it, so CP3 and
+  OpenMTM2 clients never end up in a race neither can run.
+- The server chooses the owner; clients follow `owner`.
+- In relay rooms the clients run their own load barrier and results; the server runs neither
+  (`finish` ends the race).
+- Tracks: SIT name plus CRC-32/MPEG-2 over the POD. Trucks: `truckCrc`, the same over the truck's
+  POD. Names in UTF-8. 8 players. The owner drives the computer trucks.
+- `openmtm2d --test-room [name] [--test-room-relay] [--test-room-echo]`: a permanent test room,
+  code `TESTRM` (`DAEMON.md`).
+
 **Built, and through a first play test between OpenMTM2 players:** the server, the room list,
 making and joining rooms, the lobby, chat, Ready, the race with its barriers and results. Room
 codes, invite links, the track check, owner changes, removing players, computer opponents and
@@ -598,65 +617,72 @@ gateway, and OpenMTM2's support of CP3's direct connect.
 **Open, and likely to change after your review:**
 
 - every message and field of protocol version 1;
-- the truck state frame (section 4.5), in particular whether CP3 needs more in it;
-- whether truck state should also be offered over UDP (questions 1 and 2);
+- the truck state frame (section 4.5), now for OpenMTM2 rooms only;
+- the UDP side channel for relay rooms (question 2);
 - how CP3's own modes and content are named (questions 6 to 8);
 - quick messages and Remote Ridicule, which rooms do not carry yet.
 
 **Not built yet:**
 
-- a test mode in the server (`openmtm2d --test-room`) that checks every frame a client sends and
-  logs what is wrong with it, to help write a client;
+- a test mode that checks every frame a client sends and logs what is wrong with it (the test
+  room that exists now is a permanent room with an optional echo, and checks only what any room
+  checks);
+- an optional UDP channel for relay frames, authenticated by a token from the WebSocket (agreed in
+  principle, not designed);
 - a public server;
 - the final version of `PROTOCOL.md` with a conformance checklist for client authors.
 
 ## 7. Questions for the CP3 developer
 
+Settled questions are marked **[settled]** with the answer.
+
 **Transport**
 
-1. Is a WebSocket over TLS acceptable for CP3, or would you rather not take that on? For example,
+1. **[settled: yes, WinHTTP's WebSocket on CP3's network thread.]** Is a WebSocket over TLS acceptable for CP3, or would you rather not take that on? For example,
    is WinHTTP's WebSocket API, or a small library, something you would use?
-2. Truck state over TCP can stall behind a lost packet. Would you want an optional UDP channel to
+2. **[settled in principle: later, an optional UDP channel authenticated by a token issued over the
+   WebSocket, unreliable traffic only.]** Truck state over TCP can stall behind a lost packet. Would you want an optional UDP channel to
    the server for truck state only (with the WebSocket kept for everything else), as CP3's own
    connection sends state unreliably? Or is TCP at 20 frames a second good enough in your
    experience?
 
 **Truck state**
 
-3. Is the 68-byte frame enough for CP3? Is anything CP3 shows for a remote truck missing from it,
+3. **[settled: no; CP3 uses relay rooms instead.]** Is the 68-byte frame enough for CP3? Is anything CP3 shows for a remote truck missing from it,
    such as more of the wheels' or suspension's state, or anything CP3 added to its own 0x02?
-4. Does CP3's separate physics and rendering rate need a time stamp it can trust, or another way
+4. **[settled: CP3's own packets carry their timing; not the room server's concern.]** Does CP3's separate physics and rendering rate need a time stamp it can trust, or another way
    to place frames in time? The frame carries the sender's clock in ms, and the server's clock is
    shared through `ping`.
-5. Are the angles, units and gear numbers exactly as in the game's 0x02 in CP3 too, or did CP3
+5. **[settled: moot for relay rooms; CP3's packet 2 has changed, see our reply.]** Are the angles, units and gear numbers exactly as in the game's 0x02 in CP3 too, or did CP3
    change any of them?
 
 **Content and modes**
 
-6. Is the CRC of the whole POD a good way to tell two copies of a track apart in CP3, given
+6. **[settled: yes, the SIT name plus CRC-32/MPEG-2 over the POD, as CP3's checksum packet.]** Is the CRC of the whole POD a good way to tell two copies of a track apart in CP3, given
    large track packs? Does CP3 identify tracks some other way that rooms should use?
-7. Should trucks be checked as tracks are (a file name plus a checksum), since players may have
+7. **[settled: yes, `truckCrc` in `profile`.]** Should trucks be checked as tracks are (a file name plus a checksum), since players may have
    different versions of the same custom truck?
 8. Which race types and modes does CP3 have beyond the game's, and how should a room name them?
    Would you use the `mode` mechanism (the owner judges, the others follow) for any of them?
 
 **Players and the lobby**
 
-9. How does CP3 announce computer opponents in a network game? Is the owner driving them, as
+9. **[settled: the owner drives them.]** How does CP3 announce computer opponents in a network game? Is the owner driving them, as
    proposed, what you would expect?
-10. CP3 and the game hold names in 80 bytes of ANSI text; rooms use up to 24 characters of UTF-8.
+10. **[settled: UTF-8 on the wire.]** CP3 and the game hold names in 80 bytes of ANSI text; rooms use up to 24 characters of UTF-8.
     Is that acceptable, and which code page should a name be converted to and from?
 11. Would you want quick messages, Remote Ridicule or voice radio carried in rooms?
-12. Does CP3 support more than 8 players? Rooms allow up to 16 where the track's start grid has
+12. **[settled: 8.]** Does CP3 support more than 8 players? Rooms allow up to 16 where the track's start grid has
     space.
 13. Anything else you would want from the lobby: spectators, a player who joins between races,
     the room list's filters, a list of known servers?
 
 **Playing together**
 
-14. Should CP3 and OpenMTM2 players share a room, given that their physics may differ in small
+14. **[settled for now: rooms are marked by capability (relay or not). OpenMTM2 plans to speak CP3's
+    packets in relay rooms, for cross-play.]** Should CP3 and OpenMTM2 players share a room, given that their physics may differ in small
     ways? Or should a room be marked for one client, with the other only able to watch the list?
-15. Should `hello` carry capability flags from the client (for example, which modes it knows), so
+15. **[settled: `hello.caps`.]** Should `hello` carry capability flags from the client (for example, which modes it knows), so
     the server can keep a client out of races it cannot play?
 16. Would CP3 ship with a default server address, and would you want to run one yourself, or
     have us run one?

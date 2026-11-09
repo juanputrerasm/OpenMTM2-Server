@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { createEdgeServer } from "../cloudflare/edge-server.js";
 import { workerSettings } from "../cloudflare/worker.js";
 import { buildSettings } from "../lib/settings.js";
-import { encodeState, decodeState, ROOM_PROTOCOL } from "../protocol/room-messages.js";
+import { encodeState, decodeState, encodeRelay, decodeRelay, ROOM_PROTOCOL, CAPS, RELAY_MAX_PAYLOAD, LIMITS } from "../protocol/room-messages.js";
 
 /** Cloudflare's WebSocketPair, enough for the server: [the player's end, the server's end]. */
 class FakePair {
@@ -37,7 +37,7 @@ function edge(overrides = {}, store = null) {
 const request = (path, { method = "GET", headers = {}, body } = {}) => new Request(`https://rooms.example.workers.dev${path}`, { method, headers, body });
 
 /** A player on the server: `req` sends a request and returns its answer; `seen(type)` the messages of a type so far. */
-async function player(e, name, { ip = "203.0.113.1", origin = "https://juanputrerasm.github.io" } = {}) {
+async function player(e, name, { ip = "203.0.113.1", origin = "https://juanputrerasm.github.io", caps } = {}) {
   const headers = { upgrade: "websocket", "cf-connecting-ip": ip, ...(origin ? { origin } : {}) };
   const res = await e.fetch(request("/play", { headers }));
   if (res.status !== 101) return { status: res.status };
@@ -60,7 +60,7 @@ async function player(e, name, { ip = "203.0.113.1", origin = "https://juanputre
     binary: () => ws.received.filter((d) => typeof d !== "string").map((d) => decodeState(new Uint8Array(d.buffer ?? d))),
     leave: () => ws.peer.emit("close", { code: 1000 }),
   };
-  p.hello = p.req("hello", { protocol: ROOM_PROTOCOL, name, client: "test" });
+  p.hello = p.req("hello", { protocol: ROOM_PROTOCOL, name, client: "test", ...(caps ? { caps } : {}) });
   return p;
 }
 
@@ -132,6 +132,35 @@ test("worker: a room and a race over its sockets", async () => {
   assert.equal(ann.seen("left")[0].member, ben.hello.you.id);
   assert.equal(ben.ws.peerClosed.code, 1000);
   assert.equal((await (await e.fetch(request("/status"))).json()).players, 1);
+});
+
+test("worker: relay rooms as on the daemon: the gate, the stamp, the size limits, the test room", async () => {
+  const e = edge({ testRoom: "Edge test", testRoomRelay: true });
+  const caps = [CAPS.CP3_RELAY];
+  const a = await player(e, "A", { origin: null, caps });
+  const b = await player(e, "B", { origin: null, ip: "203.0.113.2", caps });
+  const om = await player(e, "Om", { ip: "203.0.113.3" });
+  assert.ok(a.hello.features.includes(CAPS.CP3_RELAY));
+  const listed = (await (await e.fetch(request("/rooms"))).json()).rooms;
+  assert.deepEqual(listed.map((r) => [r.code, r.relay, r.test]), [["TESTRM", true, true]]);
+  assert.equal(om.req("join", { room: "TESTRM" }).code, "capability");
+  a.req("join", { room: "TESTRM" });
+  b.req("join", { room: "TESTRM" });
+  const relays = (p) => p.ws.received.filter((d) => typeof d !== "string").map((d) => decodeRelay(new Uint8Array(d.buffer ?? d)));
+  a.sendBinary(encodeRelay({ member: 0x7777, payload: new Uint8Array([5]) }));
+  a.sendBinary(encodeRelay({ member: 0, payload: new Uint8Array([6]) }));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(relays(b).map((f) => [f.member, f.payload[0]]), [[a.hello.you.id, 6]]);
+  // Past the relay's payload, dropped; past a whole frame, the socket is closed, as on the daemon.
+  const over = new Uint8Array(4 + RELAY_MAX_PAYLOAD + 1);
+  over[0] = 0xc3;
+  a.sendBinary(over);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(relays(b).length, 1);
+  const huge = new Uint8Array(LIMITS.textFrame + 1);
+  huge[0] = 0xc3;
+  a.sendBinary(huge);
+  assert.equal(a.ws.peerClosed.code, 1009);
 });
 
 test("worker: origins, per-address limits and bans kept in the store", async () => {

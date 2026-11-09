@@ -12,6 +12,11 @@
       ban list again. A deploy restarts the object and drops every connection.
     - The player's address is Cloudflare's CF-Connecting-IP header.
     - Cloudflare does not say how much is queued for a socket, so a slow client is not dropped for it.
+
+  What is the same: a binary frame (truck state, or a relay frame in a relay room) over LIMITS.textFrame
+  bytes closes the socket with 1009, as the daemon's WebSocket does; the room server then checks a
+  relay frame's own limit (RELAY_MAX_PAYLOAD) and rate. Settings such as testRoom come in
+  OPENMTM2_SETTINGS.
 */
 import { createRoomServer, createBucket } from "../rooms/room-server.js";
 import { createBanList } from "../lib/ban-list.js";

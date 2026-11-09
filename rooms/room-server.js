@@ -17,10 +17,26 @@
   gateway follows the room through `hooks`: `roomOpened(room)`, `roomClosed(room)`,
   `broadcast(room, message)` for every message sent to the whole room, and `state(room, bytes,
   member)` for every truck state frame.
+
+  A relay room (docs/PROTOCOL.md "Relay rooms") carries Community Patch 3 and 4's own game packets
+  as opaque relay frames (RELAY_TAG, 0xC3) between members who all declared CAPS.CP3_RELAY in
+  `hello`. The server stamps each frame with its sender's member id and forwards it to one member
+  or to all the others; it runs no loading or results barrier there, as the clients run their own.
+
+  With `testRoom` set, one permanent room (code TEST_ROOM_CODE) is made at start. Nobody owns it
+  while it is empty; the first to join does, and it stays when the last member leaves.
+  `testRoomRelay` makes it a relay room, `testRoomEcho` also sends each relay frame back to its
+  sender, so a single client can test itself.
 */
 import {
   ROOM_PROTOCOL, LIMITS, ERROR, CLOSE, ROOM_STATE, checkClient, decodeState, STATE_MAX_HZ, roomCode, isRoomCode,
+  CAPS, RELAY_TAG, RELAY_HEADER, RELAY_MAX_PAYLOAD, RELAY_RATE,
 } from "../protocol/room-messages.js";
+
+/** The test room's code (`testRoom`), the same on every server. */
+export const TEST_ROOM_CODE = "TESTRM";
+/** Member ids are u16 on the relay (1 to 65535), so they wrap and skip those in use. */
+const MAX_MEMBER_ID = 0xffff;
 
 /** A token bucket: `take()` is false when the rate is spent. */
 export function createBucket(perSecond, burst, now) {
@@ -41,7 +57,8 @@ export function createBucket(perSecond, burst, now) {
 export const ROOM_DEFAULTS = Object.freeze({
   name: "OpenMTM2 server", motd: "", maxRooms: 50, maxPlayers: 8, maxMembers: 200,
   maxGatewayRooms: 1, loadTimeoutS: 120, resultsTimeoutS: 30, startDelayMs: 1500, messagesPerSecond: 20, chatPerSecond: 2,
-  idleTimeoutS: 120,
+  idleTimeoutS: 120, relayBytesPerSecond: RELAY_RATE.bytesPerSecond, relayBurst: RELAY_RATE.burst,
+  testRoom: "", testRoomRelay: false, testRoomEcho: false,
 });
 
 export function createRoomServer({ config = {}, now = Date.now, random = Math.random, log = () => {}, version = "0", hooks = {} } = {}) {
@@ -52,26 +69,27 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
   let draining = null;
   let gatewayRooms = 0;
   const started = now();
-  const counters = { connections: 0, races: 0, framesRelayed: 0, timedOut: 0 };
+  const counters = { connections: 0, races: 0, framesRelayed: 0, timedOut: 0, relayFrames: 0, relayDropped: 0 };
   let sweeper = null;
 
   // ---- Snapshots ----
 
   const memberView = (m) => ({
-    id: m.id, name: m.name, client: m.clientName, truck: m.truck, skill: m.skill, location: m.location, ready: m.ready,
-    team: m.team, latency: m.latency, content: m.content, classic: m.classic,
+    id: m.id, name: m.name, client: m.clientName, truck: m.truck, truckCrc: m.truckCrc, skill: m.skill, location: m.location, ready: m.ready,
+    team: m.team, latency: m.latency, content: m.content, classic: m.classic, caps: [...m.caps],
   });
   const roomView = (r) => ({
     code: r.code, name: r.name, owner: r.owner, locked: !!r.password, public: r.public, maxPlayers: r.maxPlayers, state: r.state,
-    classic: r.classic, settings: { ...r.settings }, members: r.order.map((id) => memberView(members.get(id))),
+    classic: r.classic, relay: r.relay, test: r.permanent, settings: { ...r.settings }, members: r.order.map((id) => memberView(members.get(id))),
     race: r.race ? raceView(r.race) : null,
   });
   const raceView = (race) => ({
     id: race.id, sit: race.sit, track: race.track, laps: race.laps, weather: race.weather, mode: race.mode,
-    entrants: race.entrants.map(({ vehicle, member, computer, name, truck, owner }) => ({ vehicle, member, computer, name, truck, owner })),
+    entrants: race.entrants.map(({ vehicle, member, computer, name, truck, truckCrc, owner }) => ({ vehicle, member, computer, name, truck, truckCrc, owner })),
   });
   const summary = (r) => ({
     code: r.code, name: r.name, players: r.order.length, maxPlayers: r.maxPlayers, locked: !!r.password, state: r.state, classic: r.classic,
+    relay: r.relay, test: r.permanent,
     track: r.settings.track ? { sit: r.settings.track.sit, name: r.settings.track.name } : null, mode: r.settings.mode,
     owner: members.get(r.owner)?.name ?? "",
   });
@@ -105,6 +123,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     Object.assign(m, { ready: false, location: m.location ?? 5, content: null });
     r.order.push(m.id);
     sendRoom(r, { type: "member", member: memberView(m) }, m.id);
+    // The test room is nobody's while empty: the first to join owns it.
+    if (!r.owner) { r.owner = m.id; sendRoom(r, { type: "owner", member: m.id }, m.id); }
     log("info", "join", { room: r.code, member: m.id, name: m.name });
   }
   function exit(m, reason) {
@@ -139,6 +159,12 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
   }
   function dropRoom(r, reason) {
     clearRace(r);
+    if (r.permanent) {
+      // The test room stays, empty, nobody's, in the lobby.
+      Object.assign(r, { owner: 0, order: [], state: ROOM_STATE.LOBBY });
+      log("info", "test room empty", { room: r.code, reason });
+      return;
+    }
     if (!rooms.delete(r.code)) return;
     log("info", "room closed", { room: r.code, reason });
     if (r.classic) { gatewayRooms--; hooks.roomClosed?.(r); }
@@ -170,8 +196,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
   function startRace(r, owner, { weather, computers = [] }) {
     const humans = r.order.map((id) => members.get(id));
     const bots = computers.slice(0, Math.max(0, Math.min(r.settings.computers, LIMITS.maxPlayers - humans.length)));
-    const seats = [...humans.map((m) => ({ member: m.id, computer: false, name: m.name, truck: m.truck, owner: m.id })),
-      ...bots.map((c) => ({ member: null, computer: true, name: c.name, truck: c.truck, owner: owner.id }))];
+    const seats = [...humans.map((m) => ({ member: m.id, computer: false, name: m.name, truck: m.truck, truckCrc: m.truckCrc, owner: m.id })),
+      ...bots.map((c) => ({ member: null, computer: true, name: c.name, truck: c.truck, truckCrc: c.truckCrc ?? null, owner: owner.id }))];
     for (let i = seats.length - 1; i > 0; i--) {
       const j = Math.floor(random() * (i + 1));
       [seats[i], seats[j]] = [seats[j], seats[i]];
@@ -182,10 +208,16 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
       entrants: seats.map((s, i) => ({ ...s, vehicle: i + 1 })), loaded: new Set(), gone: new Set(), results: new Map(),
       synced: false, loadTimer: null, resultsTimer: null,
     };
-    r.state = ROOM_STATE.LOADING;
     for (const id of r.order) members.get(id).ready = false;
-    r.race.loadTimer = setTimeout(() => loadDeadline(r), cfg.loadTimeoutS * 1000);
-    r.race.loadTimer.unref?.();
+    if (r.relay) {
+      // The clients run their own loading barrier and results over the relay: the room is racing from now on.
+      r.race.synced = true;
+      r.state = ROOM_STATE.RACING;
+    } else {
+      r.state = ROOM_STATE.LOADING;
+      r.race.loadTimer = setTimeout(() => loadDeadline(r), cfg.loadTimeoutS * 1000);
+      r.race.loadTimer.unref?.();
+    }
     sendRoom(r, { type: "starting", race: raceView(r.race) });
     log("info", "race", { room: r.code, race: r.race.id, sit: r.race.sit, entrants: seats.length });
   }
@@ -205,6 +237,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     const race = r.race;
     if (!race) return;
     const left = racers(r);
+    if (r.relay) { if (!left.length) endRace(r); return; }
     if (!race.synced) {
       const waiting = left.filter((e) => !race.loaded.has(e.member));
       sendRoom(r, { type: "waiting", left: waiting.map((e) => e.name) });
@@ -220,7 +253,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     clearRace(r);
     r.state = ROOM_STATE.LOBBY;
     for (const id of r.order) members.get(id).ready = false;
-    sendRoom(r, { type: "results", race: race.id, results });
+    // A relay room's results are its clients' own: it goes back to the lobby without any.
+    if (!r.relay) sendRoom(r, { type: "results", race: race.id, results });
     sendRoom(r, { type: "room", room: roomView(r) });
     log("info", "race over", { room: r.code, race: race.id, results: race.results.size });
   }
@@ -247,10 +281,12 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
       m.hello = true;
       m.baseName = m.name = msg.name;
       m.clientName = msg.client ?? "";
+      m.caps = new Set(msg.caps ?? []);
       return reply({
         protocol: ROOM_PROTOCOL, you: { id: m.id }, server: { name: cfg.name, motd: cfg.motd, version },
         limits: { ...LIMITS, maxPlayers: Math.min(LIMITS.maxPlayers, cfg.maxPlayers) },
-        features: [...(hooks.roomOpened ? ["classic"] : []), "teamChat"],
+        features: [...(hooks.roomOpened ? ["classic"] : []), "teamChat", CAPS.CP3_RELAY, ...(rooms.has(TEST_ROOM_CODE) ? ["testRoom"] : [])],
+        relay: { tag: RELAY_TAG, header: RELAY_HEADER, maxPayload: RELAY_MAX_PAYLOAD, bytesPerSecond: cfg.relayBytesPerSecond, burst: cfg.relayBurst },
       });
     }
     if (!m.hello) return fail(ERROR.HELLO_FIRST, "Say hello first.");
@@ -266,11 +302,15 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         if (msg.classic && !(hooks.roomOpened && gatewayRooms < cfg.maxGatewayRooms)) {
           return fail(ERROR.LIMIT, hooks.roomOpened ? "This server's room for classic players is taken." : "This server does not open rooms to classic players.");
         }
+        // A relay room by default when the creator speaks the relay; never a classic one (the gateway needs state frames).
+        const relay = msg.relay ?? (m.caps.has(CAPS.CP3_RELAY) && !msg.classic);
+        if (relay && !m.caps.has(CAPS.CP3_RELAY)) return fail(ERROR.CAPABILITY, `A relay room needs ${CAPS.CP3_RELAY} in hello.caps.`);
+        if (relay && msg.classic) return fail(ERROR.STATE, "A relay room cannot be open to classic players.");
         if (r) exit(m, "left");
         // A classic room keeps the game's limits: 8 players, no computer players over the network.
         const cap = msg.classic ? Math.min(8, cfg.maxPlayers) : cfg.maxPlayers;
         const room = {
-          code: newCode(), name: msg.name, password: msg.password || "", public: msg.public !== false, classic: !!msg.classic,
+          code: newCode(), name: msg.name, password: msg.password || "", public: msg.public !== false, classic: !!msg.classic, relay, permanent: false, echo: false,
           maxPlayers: Math.min(msg.maxPlayers ?? cap, cap), owner: m.id, order: [], state: ROOM_STATE.LOBBY,
           settings: { track: null, laps: 3, weather: 0, mode: "", computers: 0, damage: true, collisions: true, wheels: false, wheelsRepairS: 8, rules: {} }, race: null,
         };
@@ -297,6 +337,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         const room = isRoomCode(code) ? rooms.get(code) : null;
         if (!room) return fail(ERROR.NOT_FOUND, "There is no such room.");
         if (room === r) return reply({ room: roomView(room) });
+        if (room.relay && !m.caps.has(CAPS.CP3_RELAY)) return fail(ERROR.CAPABILITY, `This room carries ${CAPS.CP3_RELAY}, which this client did not declare.`);
         if (room.password && msg.password !== room.password) return fail(ERROR.PASSWORD, "Wrong password.");
         if (room.order.length >= room.maxPlayers) return fail(ERROR.FULL, "The room is full.");
         if (room.state !== ROOM_STATE.LOBBY) return fail(ERROR.STATE, "The room is racing; try again after the race.");
@@ -311,7 +352,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     if (!r) return fail(ERROR.NOT_IN_ROOM, "Join a room first.");
     switch (type) {
       case "profile": {
-        for (const k of ["truck", "skill", "location", "ready", "team", "latency", "content"]) if (msg[k] !== undefined) m[k] = msg[k];
+        for (const k of ["truck", "truckCrc", "skill", "location", "ready", "team", "latency", "content"]) if (msg[k] !== undefined) m[k] = msg[k];
         sendRoom(r, { type: "member", member: memberView(m) });
         return reply();
       }
@@ -360,7 +401,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         return reply();
       }
       case "loaded": {
-        if (r.state !== ROOM_STATE.LOADING) return reply();
+        // A relay room has no server barrier: answered, and nothing else.
+        if (r.relay || r.state !== ROOM_STATE.LOADING) return reply();
         r.race.loaded.add(m.id);
         checkBarriers(r);
         return reply();
@@ -374,8 +416,14 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         sendRoom(r, { type: "race", from: m.id, e }, m.id);
         return;
       }
+      case "finish": {
+        if (!r.relay) return fail(ERROR.STATE, "Only a relay room's race is finished by its owner.");
+        if (!owner) return fail(ERROR.NOT_OWNER, "Only the room's owner can finish the race.");
+        if (r.race) endRace(r);
+        return reply();
+      }
       case "result": {
-        if (!r.race?.synced) return reply();
+        if (r.relay || !r.race?.synced) return reply();
         const mine = r.race.entrants.find((x) => x.member === m.id);
         if (!mine) return reply();
         r.race.results.set(mine.vehicle, { laps: msg.laps, total: msg.total, best: msg.best, lapsLed: msg.lapsLed ?? 0 });
@@ -392,7 +440,29 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     }
   }
 
+  /** A relay frame: in a relay room only, at any time, stamped with its sender, to one member or to all the others. */
+  function relayFrame(m, bytes) {
+    const r = m.room;
+    if (!r?.relay) return;
+    if (bytes.byteLength < RELAY_HEADER || bytes.byteLength > RELAY_HEADER + RELAY_MAX_PAYLOAD || !m.relayBucket.take(bytes.byteLength)) {
+      counters.relayDropped++;
+      return;
+    }
+    const to = bytes[2] | (bytes[3] << 8);
+    const out = new Uint8Array(bytes);
+    out[2] = m.id & 0xff;
+    out[3] = (m.id >>> 8) & 0xff;
+    const deliver = (other) => { if (other && !other.gone && other.room === r) { other.client.send(out); counters.relayFrames++; } };
+    if (to) {
+      if (to !== m.id || r.echo) deliver(members.get(to));
+      return;
+    }
+    for (const id of r.order) if (id !== m.id) deliver(members.get(id));
+    if (r.echo) deliver(m);
+  }
+
   function binary(m, bytes) {
+    if (bytes.byteLength && bytes[0] === RELAY_TAG) return relayFrame(m, bytes);
     const r = m.room;
     if (!r?.race?.synced) return;
     const s = decodeState(bytes);
@@ -410,15 +480,24 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
 
   // ---- Connections ----
 
+  function newMemberId() {
+    for (;;) {
+      const id = nextMember;
+      nextMember = nextMember >= MAX_MEMBER_ID ? 1 : nextMember + 1;
+      if (!members.has(id)) return id;
+    }
+  }
+
   function connect(client, { classic = false } = {}) {
     if (members.size >= cfg.maxMembers) { client.close(CLOSE.TOO_MANY, "The server is full"); return { text() {}, binary() {}, closed() {} }; }
     counters.connections++;
     const m = {
-      id: nextMember++, client, ip: client.ip ?? "", hello: false, baseName: "", name: "", clientName: "",
-      truck: "", skill: 1, location: 5, ready: false, team: 0, latency: null, content: null, room: null, gone: false,
+      id: newMemberId(), client, ip: client.ip ?? "", hello: false, baseName: "", name: "", clientName: "", caps: new Set(),
+      truck: "", truckCrc: null, skill: 1, location: 5, ready: false, team: 0, latency: null, content: null, room: null, gone: false,
       bucket: createBucket(cfg.messagesPerSecond, cfg.messagesPerSecond * 2, now),
       chatBucket: createBucket(cfg.chatPerSecond, cfg.chatPerSecond * 3, now),
       stateBucket: createBucket(STATE_MAX_HZ, STATE_MAX_HZ, now),
+      relayBucket: createBucket(cfg.relayBytesPerSecond, cfg.relayBurst, now),
       strikes: 0, classic, seen: now(),
     };
     members.set(m.id, m);
@@ -483,6 +562,20 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     sweeper.unref?.();
   }
 
+  // ---- The test room ----
+
+  // testRoomRelay or testRoomEcho alone mean a test room too, by the default name.
+  const testRoomName = cfg.testRoom || (cfg.testRoomRelay || cfg.testRoomEcho ? "Test room" : "");
+  if (testRoomName) {
+    rooms.set(TEST_ROOM_CODE, {
+      code: TEST_ROOM_CODE, name: String(testRoomName).slice(0, LIMITS.roomName), password: "", public: true, classic: false,
+      relay: !!cfg.testRoomRelay, permanent: true, echo: !!cfg.testRoomEcho, maxPlayers: cfg.maxPlayers, owner: 0, order: [],
+      state: ROOM_STATE.LOBBY, race: null,
+      settings: { track: null, laps: 3, weather: 0, mode: "", computers: 0, damage: true, collisions: true, wheels: false, wheelsRepairS: 8, rules: {} },
+    });
+    log("info", "test room", { room: TEST_ROOM_CODE, name: testRoomName, relay: !!cfg.testRoomRelay, echo: !!cfg.testRoomEcho });
+  }
+
   // ---- The daemon's side ----
 
   return {
@@ -514,7 +607,11 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
     /** New settings (SIGHUP): limits apply to new rooms and messages from now on. */
     reconfigure(next) {
       cfg = { ...ROOM_DEFAULTS, ...next };
-      for (const m of members.values()) { m.bucket.setRate(cfg.messagesPerSecond, cfg.messagesPerSecond * 2); m.chatBucket.setRate(cfg.chatPerSecond, cfg.chatPerSecond * 3); }
+      for (const m of members.values()) {
+        m.bucket.setRate(cfg.messagesPerSecond, cfg.messagesPerSecond * 2);
+        m.chatBucket.setRate(cfg.chatPerSecond, cfg.chatPerSecond * 3);
+        m.relayBucket.setRate(cfg.relayBytesPerSecond, cfg.relayBurst);
+      }
     },
     /** Stop taking new rooms and tell everyone; resolves when no race is running or after `maxMs`. */
     drain({ text = "The server is shutting down.", maxMs = 60000 } = {}) {

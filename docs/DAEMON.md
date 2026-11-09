@@ -63,6 +63,22 @@ the daemon at start with exit code 2. `deploy/server.example.json` is a starting
 | `gateway` | false | `OPENMTM2_GATEWAY` | `--gateway` | Rooms open to the original game through DirectPlay (`docs/GATEWAY.md`) |
 | `gatewayBind` | `0.0.0.0` | `OPENMTM2_GATEWAY_BIND` | `--gateway-bind` | The DirectPlay sockets' address |
 | `maxGatewayRooms`, `gatewayTcpPorts`, `gatewayUdpPorts`, `gatewayEnumPort` | 1, 2300-2350, 2350-2400, 47624 | | | See `docs/GATEWAY.md` |
+| `relayBytesPerSecond`, `relayBurst` | 32768, 65536 | | | The relay channel's rate per connection, in bytes of whole relay frames (`docs/PROTOCOL.md`, "Relay rooms"); frames past it are dropped silently. `relayBurst` is at least 1204 |
+| `testRoom` | | `OPENMTM2_TEST_ROOM` | `--test-room [name]` | A permanent public room by this name, code `TESTRM`, made at start (below). `--test-room` alone names it "Test room" |
+| `testRoomRelay` | false | | `--test-room-relay` | Makes the test room a relay room, for `cp3-relay/1` clients only |
+| `testRoomEcho` | false | | `--test-room-echo` | The test room also sends every relay frame back to its sender |
+
+**The test room** is for writing a client against a known room. It is there from the start with
+the code `TESTRM`, in the room list and joinable by code. Nobody owns it while it is empty: the
+first member to join owns it, ownership then moves as in any room, and when the last member
+leaves it stays, empty and in the lobby, with its settings. An admin close empties it but does not
+remove it. `--test-room-relay` (or `--test-room-echo`) alone also makes it. With echo, a relay
+frame sent to everyone, or to the sender's own id, also comes back to the sender, stamped with
+the sender's id, so one client can check its own framing without a second one:
+
+```sh
+node bin/openmtm2d.mjs --port 47660 --log-format text --test-room "CP4 test" --test-room-relay --test-room-echo
+```
 
 systemd's `StateDirectory=` sets `STATE_DIRECTORY`, which then wins over the file's `stateDir`.
 When the state folder cannot be written, bans are kept in memory and a warning is logged.

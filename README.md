@@ -44,6 +44,7 @@ A public server needs TLS, normally from a reverse proxy.
 - Running it, settings, signals, admin endpoints, systemd and Docker: `docs/DAEMON.md`
 - The protocol, for other clients: `docs/PROTOCOL.md` (draft of version 1)
 - Online rooms explained for Community Patch 3's developer, with open questions: `docs/ONLINE_ROOMS_CP3.md`
+- Relay rooms for Community Patch 3 and 4's own packets, and the test room: `docs/PROTOCOL.md` ("Relay rooms"), `docs/DAEMON.md`; our reply to CP3's developer: `docs/REPLY_TO_CP3_ONLINE_ROOMS.md`
 - `deploy/`: a systemd unit, a sample `server.json`, a Dockerfile, Caddy and nginx examples
 
 No machine to run it on? `npm run worker:deploy` puts the same rooms on Cloudflare's free Workers
