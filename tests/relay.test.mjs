@@ -13,7 +13,7 @@ import { startDaemon } from "../bin/openmtm2d.mjs";
 import { loadConfig, parseArgs } from "../lib/config.js";
 import { connect } from "./helpers/ws-client.mjs";
 import {
-  checkClient, encodeRelay, decodeRelay, ROOM_PROTOCOL, CAPS, RELAY_TAG, RELAY_MAX_PAYLOAD, ERROR,
+  checkClient, encodeRelay, decodeRelay, ROOM_PROTOCOL, CAPS, RELAY_TAG, RELAY_MAX_PAYLOAD, RELAY_MAX_RELIABLE, RELAY_RELIABLE, RELAY_RATE, ERROR,
 } from "../protocol/room-messages.js";
 
 const RELAY = [CAPS.CP3_RELAY];
@@ -60,6 +60,16 @@ test("relay frames: encode and decode", () => {
   assert.equal(decodeRelay(new Uint8Array([RELAY_TAG, 0, 0])), null, "shorter than the header");
   assert.equal(decodeRelay(new Uint8Array(4 + RELAY_MAX_PAYLOAD + 1).fill(RELAY_TAG)), null, "too long");
   assert.throws(() => encodeRelay({ payload: new Uint8Array(RELAY_MAX_PAYLOAD + 1) }));
+  // A reliable frame (flags bit 0) carries at most 1024 bytes, udpnet's own reliable limit.
+  assert.equal(RELAY_MAX_RELIABLE, 1024);
+  assert.ok(encodeRelay({ flags: RELAY_RELIABLE, payload: new Uint8Array(RELAY_MAX_RELIABLE) }));
+  assert.throws(() => encodeRelay({ flags: RELAY_RELIABLE, payload: new Uint8Array(RELAY_MAX_RELIABLE + 1) }));
+  const reliable = new Uint8Array(4 + RELAY_MAX_RELIABLE + 1);
+  reliable[0] = RELAY_TAG;
+  assert.ok(decodeRelay(reliable), "unreliable at 1025 bytes is fine");
+  reliable[1] = RELAY_RELIABLE;
+  assert.equal(decodeRelay(reliable), null, "reliable at 1025 bytes is too long");
+  assert.deepEqual(RELAY_RATE, { bytesPerSecond: 49152, burst: 65536 });
 });
 
 test("a relay room: the creator's capability makes it one, and only clients with it may join", () => {
@@ -67,6 +77,8 @@ test("a relay room: the creator's capability makes it one, and only clients with
   const cp3 = client(rooms, "Cp3", RELAY);
   assert.ok(cp3.hello.features.includes(CAPS.CP3_RELAY));
   assert.equal(cp3.hello.relay.maxPayload, RELAY_MAX_PAYLOAD);
+  assert.equal(cp3.hello.relay.maxReliable, RELAY_MAX_RELIABLE);
+  assert.equal(cp3.hello.relay.bytesPerSecond, 49152);
   const { room } = cp3.req("create", { name: "CP4 night" });
   assert.equal(room.relay, true);
   assert.deepEqual(room.members[0].caps, RELAY);
@@ -119,8 +131,12 @@ test("relay frames are stamped with the sender, sent to one member or to all the
   big[0] = RELAY_TAG;
   a.conn.binary(big);
   a.conn.binary(new Uint8Array([RELAY_TAG, 0, 0]));
-  assert.equal(b.bin.length, 1, "oversize and short frames are dropped");
-  assert.equal(rooms.status().relayDropped, 2);
+  const bigReliable = new Uint8Array(4 + RELAY_MAX_RELIABLE + 1);
+  bigReliable[0] = RELAY_TAG;
+  bigReliable[1] = RELAY_RELIABLE;
+  a.conn.binary(bigReliable);
+  assert.equal(b.bin.length, 1, "oversize, oversize reliable and short frames are dropped");
+  assert.equal(rooms.status().relayDropped, 3);
 });
 
 test("the relay's byte rate: a burst, then the sustained rate; the rest dropped silently", () => {

@@ -1,6 +1,26 @@
 OpenMTM2 Server changelog
 =========================
 
+0.4.2 (2026-11-11)
+------------------
+
+Changes
+- Relay rate raised to 49152 bytes a second per connection (bursts of 65536
+  kept), as CP4's developers asked: a host sends 25 position packets a second
+  for its own truck and each computer truck, about 24 KB/s for 8. The hello
+  answer gives it, with the new relay.maxReliable.
+- A relay frame with flags bit 0 (reliable) carries at most 1024 bytes of
+  payload, udpnet's own reliable limit (OUTREL_MAXLEN), so one game packet
+  never needs two layouts; a longer one is dropped. encodeRelay refuses one.
+- mtm2-packets.js: knownVersion(version). A Community Patch version names one
+  build's layouts exactly, with nothing negotiated, so a patch build we have
+  no profile for is unknown, not read as retail.
+
+Docs
+- REPLY_TO_CP4_ONLINE_ROOMS_2.md answers CP4's second reply.
+  REPLY_TO_CP3_ONLINE_ROOMS.md corrected: the rate, the reliable limit, and
+  PacketCollision (body-frame impulses; mirror suppression, not a cooldown).
+
 0.4.1 (2026-11-09)
 ------------------
 

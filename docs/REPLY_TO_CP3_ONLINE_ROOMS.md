@@ -18,6 +18,11 @@ game packets inside the relay and adopt your smoothing, collision and load barri
 mixed room plays by your rules. Until OpenMTM2 can do that, relay rooms stay CP3/CP4 only, as you
 proposed.
 
+**Corrected on 2026-11-10** after your second reply
+([reply_to_kmaster_online_rooms_2.md](https://mtm2.com/~mtmg/misc/reply_to_kmaster_online_rooms_2.md)):
+the relay rate (section 2), the reliable payload limit, and our reading of PacketCollision (section 5,
+item 4). Our answer to it is [`REPLY_TO_CP4_ONLINE_ROOMS_2.md`](REPLY_TO_CP4_ONLINE_ROOMS_2.md).
+
 A note on sources: the CP3 developer has provided no source code. Everything we say about CP3 and
 CP4 here comes from the developer's published documents, except section 5, which we read from the
 CP4 beta 0.52 executable itself.
@@ -131,13 +136,12 @@ node bin/openmtm2d.mjs --port 47660 --log-format text \
 
 | Question | Answer |
 |---|---|
-| Max payload per relay frame | **1200 bytes** (frame = 4 + payload). Shorter than 4 or longer than 1204: dropped. Any binary or text frame over **8192** bytes closes the socket with 1009 |
-| Rate limit | **Bytes per second per connection**, as you prefer, counted on whole relay frames: **32768 B/s sustained, 65536 B/s burst** (token bucket). Excess is **dropped silently**, no error message, no disconnect. Separate from the 20 msg/s text limit and our own state-frame limit. Configurable (`relayBytesPerSecond`, `relayBurst`); we would rather tune it together from your `netsync.log` numbers than guess |
+| Max payload per relay frame | **1200 bytes** (frame = 4 + payload), **1024** for a frame with flags bit 0 (reliable), udpnet's `OUTREL_MAXLEN` (corrected). Shorter than 4 or longer than the limit: dropped. Any binary or text frame over **8192** bytes closes the socket with 1009 |
+| Rate limit | **Bytes per second per connection**, as you prefer, counted on whole relay frames: **49152 B/s sustained, 65536 B/s burst** (token bucket; 32768 at first, raised at your request). Excess is **dropped silently**, no error message, no disconnect. Separate from the 20 msg/s text limit and our own state-frame limit. Configurable (`relayBytesPerSecond`, `relayBurst`); we would rather tune it together from your `netsync.log` numbers than guess |
 | Slow receivers | The daemon stops sending binary frames (state and relay) to a receiver with **more than 256 KB queued** in its socket, until it drains; it closes a receiver at **4 MB of queued text** (1008). Cloudflare deployments cannot see the queue and do neither |
 
-At 8 players and your < 1 KB packets, 32 KB/s per sender is about 30 frames/s of 1 KB, or far more
-of your typical position packets; tell us if your redundant-pose position packet at your send
-rate needs more.
+At 8 players and your < 1 KB packets, 48 KB/s per sender is about 40 frames/s of 1 KB, or about
+400 of your 120-byte position frames; a host sending 8 trucks at 25 a second needs about 24 KB/s.
 
 ## 3. Answers to your four netcode questions
 
@@ -213,8 +217,11 @@ what we got wrong, and tell us whether these layouts are **stable for the final 
 3. **PacketVerifyChecksum (37)**, 116 bytes, byte-for-byte retail 0x25: +0x0C char[20] SIT, +0x20
    char[80] name, +0x70 u32 CRC-32/MPEG-2 over the whole POD holding `WORLD\<SIT>`.
 4. **PacketCollision (39)**, 44 bytes: +0x0C target truck, +0x10 source vehicle, +0x14 3 x f32
-   linear impulse, +0x20 3 x f32 angular impulse. Applied only to the local player's truck (or, on the
-   host, a truck no human drives), 0.3 s cooldown per source; dv = J / mass (sum of the four weights
+   linear impulse, +0x20 3 x f32 angular impulse, both in the **hit truck's body frame**, each summed
+   over one tick (corrected: we first read world space). Applied only to the local player's truck (or,
+   on the host, a truck no human drives); dropped entirely when the hit truck's own simulation saw
+   contact with that attacker in the last 0.30 s (mirror suppression, corrected: we first read a
+   cooldown per source); dv = J / mass (sum of the four weights
    / 32.174); closest approach within 8 ft, scaled by (8 - d) / 5 between 3 and 8 ft; dv capped at
    clamp(1.25 x closing speed, 15, 60), then 22 ft/s; a 30 ft/s per-truck budget draining at
    25 ft/s per second. Packet 38 (24 bytes: truck, segments passed, total time) we read as race

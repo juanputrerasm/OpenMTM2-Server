@@ -66,7 +66,7 @@ ignored. Text is trimmed, and control characters are removed.
 
 | Type | Fields | Answer |
 |---|---|---|
-| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52"), `caps` (optional: up to 16 capability names, each 1 to 32 of `a-z 0-9 . / -`, such as `cp3-relay/1`) | `protocol`, `you: { id }` (1 to 65535), `server: { name, motd, version }`, `limits`, `features`: `classic` when the server can open rooms to classic players, `teamChat` when it routes team lines (`chat` with `team`), `cp3-relay/1` when it has relay rooms, `testRoom` when it has a test room; `relay: { tag, header, maxPayload, bytesPerSecond, burst }` |
+| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52"), `caps` (optional: up to 16 capability names, each 1 to 32 of `a-z 0-9 . / -`, such as `cp3-relay/1`) | `protocol`, `you: { id }` (1 to 65535), `server: { name, motd, version }`, `limits`, `features`: `classic` when the server can open rooms to classic players, `teamChat` when it routes team lines (`chat` with `team`), `cp3-relay/1` when it has relay rooms, `testRoom` when it has a test room; `relay: { tag, header, maxPayload, maxReliable, bytesPerSecond, burst }` |
 | `ping` | `t`, any number | `{ type: "pong", t, server }`, where `server` is the server's clock in ms |
 | `list` | | `rooms`: the public rooms (below) |
 | `create` | `name` (1 to 40), `password` (optional, up to 32), `maxPlayers` (2 to the server's limit), `public` (default true), `classic` (optional: open to the original game through the server's DirectPlay gateway, `docs/GATEWAY.md`), `relay` (optional: a relay room, below; by default true when the creator declared `cp3-relay/1`, and never with `classic`) | `room`. The client is now in it and owns it |
@@ -231,9 +231,11 @@ client to server                         server to client
   only, if it is in the room. A frame for anyone else, or for the sender itself, is dropped.
 - Relay frames pass whenever the sender is in a relay room: in the lobby, while loading and while
   racing. Outside a relay room, a frame tagged 0xC3 is dropped.
-- A frame shorter than 4 bytes or with more than 1200 bytes of payload is dropped. Any binary
-  frame over 8192 bytes closes the connection with 1009.
-- **Rate**: each connection may send 32768 bytes a second of relay frames (whole frames, header
+- A frame shorter than 4 bytes or with more than 1200 bytes of payload is dropped. Flags bit 0
+  marks a frame its sender meant to be reliable; such a frame carries at most 1024 bytes
+  (`maxReliable`, udpnet's own reliable limit), or it is dropped. The server does nothing else
+  with the flags. Any binary frame over 8192 bytes closes the connection with 1009.
+- **Rate**: each connection may send 49152 bytes a second of relay frames (whole frames, header
   included), with bursts up to 65536 bytes (`relayBytesPerSecond`, `relayBurst`; `hello` says the
   server's). Frames past it are dropped silently: the relay is for unreliable traffic, and a client
   that needs delivery acknowledges over it. Truck state frames keep their own limit.

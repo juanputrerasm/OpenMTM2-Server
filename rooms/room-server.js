@@ -30,7 +30,7 @@
 */
 import {
   ROOM_PROTOCOL, LIMITS, ERROR, CLOSE, ROOM_STATE, checkClient, decodeState, STATE_MAX_HZ, roomCode, isRoomCode,
-  CAPS, RELAY_TAG, RELAY_HEADER, RELAY_MAX_PAYLOAD, RELAY_RATE,
+  CAPS, RELAY_TAG, RELAY_HEADER, RELAY_MAX_PAYLOAD, RELAY_MAX_RELIABLE, RELAY_RATE, relayMaxPayload,
 } from "../protocol/room-messages.js";
 
 /** The test room's code (`testRoom`), the same on every server. */
@@ -286,7 +286,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         protocol: ROOM_PROTOCOL, you: { id: m.id }, server: { name: cfg.name, motd: cfg.motd, version },
         limits: { ...LIMITS, maxPlayers: Math.min(LIMITS.maxPlayers, cfg.maxPlayers) },
         features: [...(hooks.roomOpened ? ["classic"] : []), "teamChat", CAPS.CP3_RELAY, ...(rooms.has(TEST_ROOM_CODE) ? ["testRoom"] : [])],
-        relay: { tag: RELAY_TAG, header: RELAY_HEADER, maxPayload: RELAY_MAX_PAYLOAD, bytesPerSecond: cfg.relayBytesPerSecond, burst: cfg.relayBurst },
+        relay: { tag: RELAY_TAG, header: RELAY_HEADER, maxPayload: RELAY_MAX_PAYLOAD, maxReliable: RELAY_MAX_RELIABLE, bytesPerSecond: cfg.relayBytesPerSecond, burst: cfg.relayBurst },
       });
     }
     if (!m.hello) return fail(ERROR.HELLO_FIRST, "Say hello first.");
@@ -444,7 +444,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
   function relayFrame(m, bytes) {
     const r = m.room;
     if (!r?.relay) return;
-    if (bytes.byteLength < RELAY_HEADER || bytes.byteLength > RELAY_HEADER + RELAY_MAX_PAYLOAD || !m.relayBucket.take(bytes.byteLength)) {
+    if (bytes.byteLength < RELAY_HEADER || bytes.byteLength > RELAY_HEADER + relayMaxPayload(bytes[1]) || !m.relayBucket.take(bytes.byteLength)) {
       counters.relayDropped++;
       return;
     }

@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  encodePacket, decodePacket, packetSize, PROFILES, profileForVersion, MTM2_NET_VERSION, CP3_NET_VERSION, CP4_NET_VERSION,
+  encodePacket, decodePacket, packetSize, PROFILES, profileForVersion, knownVersion, MTM2_NET_VERSION, CP3_NET_VERSION, CP4_NET_VERSION,
   CP_TICK_S, stateFields, stateFromPacket, TYPES,
 } from "../protocol/mtm2-packets.js";
 
@@ -19,6 +19,9 @@ test("the version in 0x03 picks the profile", () => {
   assert.equal(profileForVersion(0x3402), PROFILES.cp4);
   assert.equal(profileForVersion(0x0204), PROFILES.retail, "anything else is retail's layout");
   assert.equal(profileForVersion(undefined), PROFILES.retail);
+  // A patch build names its own layouts; one we have no profile for is unknown, not retail.
+  for (const v of [MTM2_NET_VERSION, 0x0204, CP3_NET_VERSION, CP4_NET_VERSION]) assert.equal(knownVersion(v), true, v.toString(16));
+  for (const v of [0x3401, 0x3403, 0x3500, undefined]) assert.equal(knownVersion(v), false, String(v));
   // 0x03 is the same in every profile, so it can be read before the profile is known.
   for (const name of ["retail", "cp3", "cp4"]) assert.equal(packetSize(0x03, name), 92);
   const info = encodePacket("info", { truck: "Bigfoot", version: CP4_NET_VERSION }, 1, "cp4");

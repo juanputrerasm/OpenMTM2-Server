@@ -593,8 +593,8 @@ The differences are deliberate:
 
 - CP3 and CP4 carry their own game packets in **relay rooms**: binary frames tagged 0xC3, a flags
   byte, a u16 member id (to: 0 for all others; from: written by the server), and up to 1200 bytes of
-  payload, at 32 KB a second per connection with 64 KB bursts. The 68-byte state frame and
-  section 5's translation are for OpenMTM2 rooms.
+  payload (1024 for a frame flagged reliable), at 48 KB a second per connection with 64 KB bursts.
+  The 68-byte state frame and section 5's translation are for OpenMTM2 rooms.
 - `hello.caps`, with `cp3-relay/1`. Relay rooms admit only clients that declared it, so CP3 and
   OpenMTM2 clients never end up in a race neither can run.
 - The server chooses the owner; clients follow `owner`.
