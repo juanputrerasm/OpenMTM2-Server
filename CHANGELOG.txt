@@ -1,6 +1,30 @@
 OpenMTM2 Server changelog
 =========================
 
+0.4.3 (2026-11-25)
+------------------
+
+Additions
+- Community Patch 4 2.0.52.4's network version 0x3404 (CP4_NET_VERSION), with
+  beta 0.52's 0x3402 still read with CP4's layouts (CP4_BETA_NET_VERSION), and
+  its two new packets, both guaranteed: 0x2a originalPhysics (an s16 after the
+  header; a longer packet is taken) and 0x2b parallelPenalty (s32 truck, u32
+  running total in ms).
+- hello.caps room-race/1: the room protocol's own races (state frames, the
+  server's barriers and results, extension modes). OpenMTM2 declares it. A
+  client that declares cp3-relay/1 without it (Community Patch 4) cannot join
+  or make an ordinary room and gets capability; a client with no capabilities
+  is taken as before. The server lists room-race/1 in its features.
+
+Changes
+- A relay room holds at most 8 racers, as CP4 2.0.52.4 does.
+- A relay room keeps settings.mode empty: it plays its clients' own races, of
+  the track's race type, never an extension mode.
+
+Docs
+- PROTOCOL.md: room-race/1, ordinary rooms and relay-only clients, no modes
+  in a relay room.
+
 0.4.2 (2026-11-11)
 ------------------
 

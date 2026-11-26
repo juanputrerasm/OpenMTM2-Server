@@ -13,27 +13,28 @@ const f32 = (x) => Math.fround(x);
 
 test("the version in 0x03 picks the profile", () => {
   assert.equal(CP3_NET_VERSION, 0x3400);
-  assert.equal(CP4_NET_VERSION, 0x3402);
+  assert.equal(CP4_NET_VERSION, 0x3404, "CP4 2.0.52.4");
   assert.equal(profileForVersion(MTM2_NET_VERSION), PROFILES.retail);
   assert.equal(profileForVersion(0x3400), PROFILES.cp3);
-  assert.equal(profileForVersion(0x3402), PROFILES.cp4);
+  assert.equal(profileForVersion(0x3402), PROFILES.cp4, "beta 0.52 reads with CP4's layouts");
+  assert.equal(profileForVersion(0x3404), PROFILES.cp4);
   assert.equal(profileForVersion(0x0204), PROFILES.retail, "anything else is retail's layout");
   assert.equal(profileForVersion(undefined), PROFILES.retail);
   // A patch build names its own layouts; one we have no profile for is unknown, not retail.
-  for (const v of [MTM2_NET_VERSION, 0x0204, CP3_NET_VERSION, CP4_NET_VERSION]) assert.equal(knownVersion(v), true, v.toString(16));
-  for (const v of [0x3401, 0x3403, 0x3500, undefined]) assert.equal(knownVersion(v), false, String(v));
+  for (const v of [MTM2_NET_VERSION, 0x0204, CP3_NET_VERSION, 0x3402, CP4_NET_VERSION]) assert.equal(knownVersion(v), true, v.toString(16));
+  for (const v of [0x3401, 0x3403, 0x3405, 0x3500, undefined]) assert.equal(knownVersion(v), false, String(v));
   // 0x03 is the same in every profile, so it can be read before the profile is known.
   for (const name of ["retail", "cp3", "cp4"]) assert.equal(packetSize(0x03, name), 92);
   const info = encodePacket("info", { truck: "Bigfoot", version: CP4_NET_VERSION }, 1, "cp4");
-  assert.equal(new DataView(info.buffer).getUint16(0x3a, true), 0x3402);
-  assert.equal(decodePacket(info).version, 0x3402);
+  assert.equal(new DataView(info.buffer).getUint16(0x3a, true), 0x3404);
+  assert.equal(decodePacket(info).version, 0x3404);
 });
 
 test("sizes by profile", () => {
   const sizes = {
     retail: { 0x02: 61, 0x14: 36, 0x25: 116, 0x26: null, 0x27: null, 0x28: null, 0x29: null },
     cp3: { 0x02: 65, 0x14: 36, 0x25: 116, 0x26: 24, 0x27: 44, 0x28: null, 0x29: null },
-    cp4: { 0x02: 116, 0x14: 40, 0x25: 116, 0x26: 24, 0x27: 44, 0x28: 16, 0x29: 16 },
+    cp4: { 0x02: 116, 0x14: 40, 0x25: 116, 0x26: 24, 0x27: 44, 0x28: 16, 0x29: 16, 0x2a: 14, 0x2b: 20 },
   };
   for (const [name, table] of Object.entries(sizes)) {
     for (const [type, size] of Object.entries(table)) assert.equal(packetSize(Number(type), name), size, `${name} 0x${Number(type).toString(16)}`);
@@ -181,4 +182,18 @@ test("decoding is strict: the profile's exact size, else kind null with a reason
   const radio = new Uint8Array(12);
   radio[0] = 0x89;
   assert.match(decodePacket(radio).reason, /radio shorter/);
+});
+
+test("CP4 2.0.52.4's packets 0x2a (Original Physics) and 0x2b (Parallel race penalty)", () => {
+  const phys = encodePacket("originalPhysics", { value: 1 }, 1, "cp4");
+  assert.equal(phys.length, 14);
+  assert.equal(decodePacket(phys, "cp4").value, 1);
+  // Only the two payload bytes are read: a longer packet is taken.
+  const longer = new Uint8Array(20); longer.set(phys);
+  assert.equal(decodePacket(longer, "cp4").value, 1);
+  const pen = encodePacket("parallelPenalty", { truck: 1, totalMs: 10000 }, 2, "cp4");
+  assert.equal(pen.length, 20);
+  assert.deepEqual([decodePacket(pen, "cp4").truck, decodePacket(pen, "cp4").totalMs], [1, 10000]);
+  assert.ok(PROFILES.cp4.guaranteed.has(0x2a) && PROFILES.cp4.guaranteed.has(0x2b), "the ordered reliable channel");
+  assert.equal(decodePacket(pen, "cp3").kind, null, "not in CP3's layouts");
 });

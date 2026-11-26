@@ -87,13 +87,34 @@ test("a relay room: the creator's capability makes it one, and only clients with
   assert.equal(refused.code, ERROR.CAPABILITY);
   assert.equal(rooms.list()[0].relay, true, "the room list says so");
   assert.equal(om.req("create", { name: "Nope", relay: true }).code, ERROR.CAPABILITY, "no relay room without the capability");
-  // An OpenMTM2 room stays open to everyone, CP3 clients included.
+  // An ordinary room is open to every client that races by the room protocol: one with no capabilities, or one that
+  // declared room-race/1 with the relay (OpenMTM2 with CP4 cross-play). A relay-only client (CP4) gets capability.
   const plain = om.req("create", { name: "Plain" }).room;
   assert.equal(plain.relay, false);
-  const cp3b = client(rooms, "Cp3b", RELAY);
-  assert.equal(cp3b.req("join", { room: plain.code }).type, "result");
-  // A relay-capable creator may still ask for an ordinary room.
-  assert.equal(client(rooms, "Cp3c", RELAY).req("create", { name: "Mixed", relay: false }).room.relay, false);
+  const cp4 = client(rooms, "Cp4", RELAY);
+  assert.equal(cp4.req("join", { room: plain.code }).code, ERROR.CAPABILITY, "a relay-only client stays out");
+  assert.equal(cp4.req("create", { name: "Mine", relay: false }).code, ERROR.CAPABILITY, "and makes none");
+  const both = [CAPS.CP3_RELAY, CAPS.ROOM_RACE];
+  assert.equal(client(rooms, "Om2", both).req("join", { room: plain.code }).type, "result");
+  // A creator with both may still ask for an ordinary room.
+  assert.equal(client(rooms, "Om3", both).req("create", { name: "Mixed", relay: false }).room.relay, false);
+  assert.ok(om.hello.features.includes(CAPS.ROOM_RACE));
+});
+
+test("a relay room plays its clients' own races: an extension mode is not kept, so a CP4 client may always join", () => {
+  const { rooms } = server();
+  const owner = client(rooms, "Om", [CAPS.CP3_RELAY, CAPS.ROOM_RACE]);
+  const { room } = owner.req("create", { name: "Cross" });
+  assert.equal(room.relay, true);
+  assert.equal(owner.req("settings", { mode: "hockey" }).type, "result");
+  assert.equal(rooms.list()[0].mode, "");
+  assert.equal(client(rooms, "Cp4", RELAY).req("join", { room: room.code }).type, "result");
+  // An ordinary room's owner picks a mode as before; a CP4 client cannot join it.
+  const om = client(rooms, "Om2");
+  const plain = om.req("create", { name: "Party" }).room;
+  om.req("settings", { mode: "tag" });
+  assert.equal(rooms.list().find((x) => x.code === plain.code).mode, "tag");
+  assert.equal(client(rooms, "Cp4b", RELAY).req("join", { room: plain.code }).code, ERROR.CAPABILITY);
 });
 
 test("relay frames are stamped with the sender, sent to one member or to all the others", () => {
@@ -154,7 +175,8 @@ test("the relay's byte rate: a burst, then the sustained rate; the rest dropped 
 
 test("relay frames are ignored in an ordinary room, and state frames keep their rules", () => {
   const { rooms } = server();
-  const a = client(rooms, "A", RELAY), b = client(rooms, "B", RELAY);
+  const both = [CAPS.CP3_RELAY, CAPS.ROOM_RACE];
+  const a = client(rooms, "A", both), b = client(rooms, "B", both);
   b.req("join", { room: a.req("create", { name: "Plain", relay: false }).room.code });
   a.conn.binary(encodeRelay({ payload: new Uint8Array([1]) }));
   assert.equal(b.bin.length, 0);

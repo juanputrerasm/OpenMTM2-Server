@@ -49,7 +49,7 @@ ignored. Text is trimmed, and control characters are removed.
 | `rate-limited` | Too many messages. Slow down |
 | `limit` | The server has no room for another room |
 | `shutting-down` | The server takes no new rooms |
-| `capability` | The room needs a capability this client did not declare in `hello.caps` (a relay room needs `cp3-relay/1`) |
+| `capability` | The room needs a capability this client did not declare in `hello.caps` (a relay room needs `cp3-relay/1`; an ordinary room refuses a client that declared `cp3-relay/1` without `room-race/1`) |
 
 | Close code | |
 |---|---|
@@ -66,7 +66,7 @@ ignored. Text is trimmed, and control characters are removed.
 
 | Type | Fields | Answer |
 |---|---|---|
-| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52"), `caps` (optional: up to 16 capability names, each 1 to 32 of `a-z 0-9 . / -`, such as `cp3-relay/1`) | `protocol`, `you: { id }` (1 to 65535), `server: { name, motd, version }`, `limits`, `features`: `classic` when the server can open rooms to classic players, `teamChat` when it routes team lines (`chat` with `team`), `cp3-relay/1` when it has relay rooms, `testRoom` when it has a test room; `relay: { tag, header, maxPayload, maxReliable, bytesPerSecond, burst }` |
+| `hello` | `protocol` (1), `name` (1 to 24), `client` (optional, up to 40, such as "OpenMTM2" or "CP3 2.0.52"), `caps` (optional: up to 16 capability names, each 1 to 32 of `a-z 0-9 . / -`, such as `cp3-relay/1` or `room-race/1`) | `protocol`, `you: { id }` (1 to 65535), `server: { name, motd, version }`, `limits`, `features`: `classic` when the server can open rooms to classic players, `teamChat` when it routes team lines (`chat` with `team`), `cp3-relay/1` when it has relay rooms, `room-race/1` (its ordinary rooms' races), `testRoom` when it has a test room; `relay: { tag, header, maxPayload, maxReliable, bytesPerSecond, burst }` |
 | `ping` | `t`, any number | `{ type: "pong", t, server }`, where `server` is the server's clock in ms |
 | `list` | | `rooms`: the public rooms (below) |
 | `create` | `name` (1 to 40), `password` (optional, up to 32), `maxPlayers` (2 to the server's limit), `public` (default true), `classic` (optional: open to the original game through the server's DirectPlay gateway, `docs/GATEWAY.md`), `relay` (optional: a relay room, below; by default true when the creator declared `cp3-relay/1`, and never with `classic`) | `room`. The client is now in it and owns it |
@@ -211,8 +211,20 @@ capability is `cp3-relay/1`.
 **Who.** A room's kind is fixed when it is made. A client that declared `cp3-relay/1` in
 `hello.caps` makes a relay room by default (`create { relay: false }` for an ordinary one); a
 client without it cannot make one. Only clients that declared `cp3-relay/1` may join a relay room;
-the others get `capability`. So every member of a relay room speaks the relay. Ordinary rooms stay
-open to every client, as before. The room list and the room carry `relay`.
+the others get `capability`. So every member of a relay room speaks the relay. The room list and
+the room carry `relay`.
+
+**Ordinary rooms and relay-only clients.** An ordinary room races by this protocol (state frames,
+the server's barriers and results) and its owner may pick an extension mode (`settings.mode`).
+`room-race/1` in `hello.caps` says a client races that way; OpenMTM2 declares it. A client that
+declares `cp3-relay/1` without `room-race/1` (Community Patch 4) races only over the relay: it
+cannot join or make an ordinary room (`capability`). A client with no capabilities at all (an
+older OpenMTM2) is taken as racing by this protocol, as before.
+
+**No modes in a relay room.** A relay room plays its clients' own races, of the race type the
+track gives (circuit, rally, drag, Summit, Parallel): the server keeps its `settings.mode` empty
+whatever its owner sends, so a relay room never plays an extension mode and any relay client may
+join it.
 
 **Relay frames** are binary frames, little-endian, whose first byte is 0xC3 (a state frame's is 1):
 

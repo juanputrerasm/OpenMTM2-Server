@@ -30,7 +30,7 @@
 */
 import {
   ROOM_PROTOCOL, LIMITS, ERROR, CLOSE, ROOM_STATE, checkClient, decodeState, STATE_MAX_HZ, roomCode, isRoomCode,
-  CAPS, RELAY_TAG, RELAY_HEADER, RELAY_MAX_PAYLOAD, RELAY_MAX_RELIABLE, RELAY_RATE, relayMaxPayload,
+  CAPS, RELAY_TAG, RELAY_HEADER, RELAY_MAX_PAYLOAD, RELAY_MAX_RELIABLE, RELAY_RATE, relayMaxPayload, relayOnly,
 } from "../protocol/room-messages.js";
 
 /** The test room's code (`testRoom`), the same on every server. */
@@ -285,7 +285,7 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
       return reply({
         protocol: ROOM_PROTOCOL, you: { id: m.id }, server: { name: cfg.name, motd: cfg.motd, version },
         limits: { ...LIMITS, maxPlayers: Math.min(LIMITS.maxPlayers, cfg.maxPlayers) },
-        features: [...(hooks.roomOpened ? ["classic"] : []), "teamChat", CAPS.CP3_RELAY, ...(rooms.has(TEST_ROOM_CODE) ? ["testRoom"] : [])],
+        features: [...(hooks.roomOpened ? ["classic"] : []), "teamChat", CAPS.CP3_RELAY, CAPS.ROOM_RACE, ...(rooms.has(TEST_ROOM_CODE) ? ["testRoom"] : [])],
         relay: { tag: RELAY_TAG, header: RELAY_HEADER, maxPayload: RELAY_MAX_PAYLOAD, maxReliable: RELAY_MAX_RELIABLE, bytesPerSecond: cfg.relayBytesPerSecond, burst: cfg.relayBurst },
       });
     }
@@ -306,9 +306,11 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         const relay = msg.relay ?? (m.caps.has(CAPS.CP3_RELAY) && !msg.classic);
         if (relay && !m.caps.has(CAPS.CP3_RELAY)) return fail(ERROR.CAPABILITY, `A relay room needs ${CAPS.CP3_RELAY} in hello.caps.`);
         if (relay && msg.classic) return fail(ERROR.STATE, "A relay room cannot be open to classic players.");
+        if (!relay && relayOnly(m.caps)) return fail(ERROR.CAPABILITY, `An ordinary room needs ${CAPS.ROOM_RACE} in hello.caps; this client races only in relay rooms.`);
         if (r) exit(m, "left");
-        // A classic room keeps the game's limits: 8 players, no computer players over the network.
-        const cap = msg.classic ? Math.min(8, cfg.maxPlayers) : cfg.maxPlayers;
+        // A classic room keeps the game's limits: 8 players, no computer players over the network. A relay room (the
+        // Community Patch engines') holds at most 8 racers too (CP4 2.0.52.4, OpenMTM2 docs/CP4_ENGINE_UPDATES.md 10).
+        const cap = msg.classic || relay ? Math.min(8, cfg.maxPlayers) : cfg.maxPlayers;
         const room = {
           code: newCode(), name: msg.name, password: msg.password || "", public: msg.public !== false, classic: !!msg.classic, relay, permanent: false, echo: false,
           maxPlayers: Math.min(msg.maxPlayers ?? cap, cap), owner: m.id, order: [], state: ROOM_STATE.LOBBY,
@@ -338,6 +340,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         if (!room) return fail(ERROR.NOT_FOUND, "There is no such room.");
         if (room === r) return reply({ room: roomView(room) });
         if (room.relay && !m.caps.has(CAPS.CP3_RELAY)) return fail(ERROR.CAPABILITY, `This room carries ${CAPS.CP3_RELAY}, which this client did not declare.`);
+        // An ordinary room races by the room protocol and may play an extension mode: not for a relay-only client.
+        if (!room.relay && relayOnly(m.caps)) return fail(ERROR.CAPABILITY, `This room plays OpenMTM2's own races and modes (${CAPS.ROOM_RACE}), which this client did not declare.`);
         if (room.password && msg.password !== room.password) return fail(ERROR.PASSWORD, "Wrong password.");
         if (room.order.length >= room.maxPlayers) return fail(ERROR.FULL, "The room is full.");
         if (room.state !== ROOM_STATE.LOBBY) return fail(ERROR.STATE, "The room is racing; try again after the race.");
@@ -376,6 +380,8 @@ export function createRoomServer({ config = {}, now = Date.now, random = Math.ra
         const trackChanged = msg.track !== undefined && (msg.track?.sit !== s.track?.sit || msg.track?.crc !== s.track?.crc);
         for (const k of ["track", "laps", "weather", "mode", "computers", "damage", "collisions", "wheels", "wheelsRepairS", "rules"]) if (msg[k] !== undefined) s[k] = msg[k];
         if (r.classic) { s.computers = 0; s.mode = ""; }
+        // A relay room plays its clients' own races (the track's race type): no extension mode.
+        if (r.relay) s.mode = "";
         if (trackChanged) for (const id of r.order) members.get(id).content = null;
         sendRoom(r, { type: "room", room: roomView(r) });
         return reply();
